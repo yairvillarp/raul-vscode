@@ -10,11 +10,15 @@ export class GatewayClient {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private requestId = 0;
   private pendingRequests: Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }> = new Map();
-  private pendingResponses: Map<string, (text: string) => void> = new Map();
   private connected = false;
   private debugLog: ((msg: string) => void) | null = null;
   private challengeNonce: string = '';
   private extensionContext: vscode.ExtensionContext | null = null;
+
+  // Pending sendMessage state
+  private pendingTextResolver: ((text: string) => void) | null = null;
+  private pendingTextBuffer: string = '';
+  private pendingTextTimer: NodeJS.Timeout | null = null;
 
   constructor(url: string, token: string) {
     this.url = url;
@@ -63,11 +67,9 @@ export class GatewayClient {
             this.log('Got connect challenge');
             this.challengeNonce = msg.payload.nonce;
             
-            // Generate device identity using extension host crypto
             const identity = generateDeviceIdentity(this.token, this.challengeNonce);
             this.log(`Generated device: ${identity.deviceId.substring(0, 16)}...`);
             
-            // Proper connect with valid client.id and client.mode + device auth
             const connectReq = {
               type: 'req',
               id: String(++this.requestId),
@@ -116,7 +118,6 @@ export class GatewayClient {
               pending.reject(new Error(msg.error?.message || 'Request failed'));
             }
           } else if (msg.type === 'event' && (msg.event === 'message' || msg.event === 'token')) {
-            // Forward to registered message handlers AND resolve pending responses
             const text = msg.payload?.text || msg.payload?.content || '';
             const sender = msg.payload?.sender === 'raul' ? 'raul' : 'user';
             
@@ -125,15 +126,23 @@ export class GatewayClient {
               text: typeof text === 'string' ? text : JSON.stringify(text),
               timestamp: Date.now()
             };
+            
+            // Forward to UI handlers for real-time display
             this.messageHandlers.forEach(handler => handler(chatMsg));
             
-            // Resolve any pending sendMessage that was waiting for this session
-            if (msg.payload?.sessionKey) {
-              const resolver = this.pendingResponses.get(msg.payload.sessionKey);
-              if (resolver) {
-                resolver(chatMsg.text);
-                this.pendingResponses.delete(msg.payload.sessionKey);
-              }
+            // Accumulate text for sendMessage promise
+            if (this.pendingTextResolver !== null) {
+              this.pendingTextBuffer += chatMsg.text;
+              // Reset the flush timer
+              if (this.pendingTextTimer) clearTimeout(this.pendingTextTimer);
+              this.pendingTextTimer = setTimeout(() => {
+                if (this.pendingTextResolver) {
+                  const result = this.pendingTextBuffer;
+                  this.pendingTextResolver(result);
+                  this.pendingTextBuffer = '';
+                  this.pendingTextResolver = null;
+                }
+              }, 2500); // 2.5s of silence = response complete
             }
           }
         } catch (e) {
@@ -197,21 +206,32 @@ export class GatewayClient {
     return new Promise((resolve, reject) => {
       this.log(`Sending message: ${text.substring(0, 50)}...`);
       
-      // chat.send requires: sessionKey, message (string), idempotencyKey
       const sessionKey = `agent:raul:vscode:${Date.now()}`;
       const idempotencyKey = `vscode-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       
-      // Timeout if no response
-      const timeout = setTimeout(() => {
-        this.pendingResponses.delete(sessionKey);
-        reject(new Error('Message send timeout'));
-      }, 60000);
+      // Set up pending state for text accumulation
+      this.pendingTextBuffer = '';
       
-      // Store pending response handler
-      this.pendingResponses.set(sessionKey, (responseText: string) => {
-        clearTimeout(timeout);
-        resolve(responseText);
-      });
+      // Wrap resolve to also clear timer and reset state
+      const wrappedResolve = (result: string) => {
+        if (this.pendingTextTimer) clearTimeout(this.pendingTextTimer);
+        this.pendingTextResolver = null;
+        this.pendingTextBuffer = '';
+        resolve(result);
+      };
+      
+      this.pendingTextResolver = wrappedResolve;
+      
+      // Timeout fallback
+      const timeout = setTimeout(() => {
+        if (this.pendingTextResolver === wrappedResolve) {
+          this.pendingTextResolver = null;
+          const result = this.pendingTextBuffer;
+          this.pendingTextBuffer = '';
+          this.log(`sendMessage timeout, returning ${result.length} chars`);
+          resolve(result);
+        }
+      }, 90000);
       
       this.sendRpc('chat.send', {
         sessionKey,
@@ -219,7 +239,10 @@ export class GatewayClient {
         idempotencyKey
       }).catch((err) => {
         clearTimeout(timeout);
-        this.pendingResponses.delete(sessionKey);
+        if (this.pendingTextResolver === wrappedResolve) {
+          this.pendingTextResolver = null;
+          this.pendingTextBuffer = '';
+        }
         reject(err);
       });
     });
@@ -243,6 +266,9 @@ export class GatewayClient {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+    if (this.pendingTextTimer) {
+      clearTimeout(this.pendingTextTimer);
     }
     this.ws?.close();
     this.ws = null;
