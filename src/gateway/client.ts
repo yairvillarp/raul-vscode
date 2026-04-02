@@ -118,6 +118,7 @@ export class GatewayClient {
               pending.reject(new Error(msg.error?.message || 'Request failed'));
             }
           } else if (msg.type === 'event' && (msg.event === 'message' || msg.event === 'token')) {
+            this.log(`[EVENT] ${msg.event} payload=${JSON.stringify(msg.payload).substring(0, 200)}`);
             const text = msg.payload?.text || msg.payload?.content || '';
             const sender = msg.payload?.sender === 'raul' ? 'raul' : 'user';
             
@@ -133,11 +134,13 @@ export class GatewayClient {
             // Accumulate text for sendMessage promise
             if (this.pendingTextResolver !== null) {
               this.pendingTextBuffer += chatMsg.text;
+              this.log(`[BUF] accumulated ${this.pendingTextBuffer.length} chars, resetting 2.5s flush timer`);
               // Reset the flush timer
               if (this.pendingTextTimer) clearTimeout(this.pendingTextTimer);
               this.pendingTextTimer = setTimeout(() => {
                 if (this.pendingTextResolver) {
                   const result = this.pendingTextBuffer;
+                  this.log(`[BUF] flush timer fired, resolving with ${result.length} chars`);
                   this.pendingTextResolver(result);
                   this.pendingTextBuffer = '';
                   this.pendingTextResolver = null;
@@ -214,6 +217,7 @@ export class GatewayClient {
       
       // Wrap resolve to also clear timer and reset state
       const wrappedResolve = (result: string) => {
+        this.log(`[SEND] resolving with ${result.length} chars`);
         if (this.pendingTextTimer) clearTimeout(this.pendingTextTimer);
         this.pendingTextResolver = null;
         this.pendingTextBuffer = '';
