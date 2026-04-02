@@ -5,6 +5,7 @@ import { generateDeviceIdentity } from './crypto';
 export class GatewayClient {
   private url: string;
   private token: string;
+  private sessionId: string = 'default';
   private ws: WebSocket | null = null;
   private messageHandlers: Set<(msg: ChatMessage) => void> = new Set();
   private reconnectTimer: NodeJS.Timeout | null = null;
@@ -57,6 +58,10 @@ export class GatewayClient {
   updateConfig(url: string, token: string): void {
     this.url = url;
     this.token = token;
+  }
+
+  setSessionId(sessionId: string): void {
+    this.sessionId = sessionId;
   }
 
   async connect(): Promise<void> {
@@ -261,7 +266,7 @@ export class GatewayClient {
     return new Promise((resolve, reject) => {
       this.logChat(`[SEND] text="${text.substring(0, 80)}..."`);
 
-      const sessionKey = `agent:raul:vscode:${Date.now()}`;
+      const sessionKey = `agent:raul:vscode:${this.sessionId}`;
       const idempotencyKey = `vscode-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
       this.pendingTextBuffer = '';

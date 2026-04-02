@@ -27,6 +27,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Initialize gateway client
   gatewayClient = new GatewayClient(config.gatewayUrl, config.token);
+  gatewayClient.setSessionId(config.sessionId);
 
   // Debug output channel
   const debugChannel = vscode.window.createOutputChannel('Raul Debug');
@@ -95,6 +96,7 @@ function openSettingsPanel(context: vscode.ExtensionContext) {
         settingsManager.saveConfig({
           gatewayUrl: message.gatewayUrl,
           token: message.token,
+          sessionId: message.sessionId,
           debug: message.debug,
           debugChat: message.debugChat,
           debugTools: message.debugTools
@@ -102,6 +104,7 @@ function openSettingsPanel(context: vscode.ExtensionContext) {
         
         // Update gateway client
         gatewayClient.updateConfig(message.gatewayUrl, message.token);
+        gatewayClient.setSessionId(message.sessionId);
         gatewayClient.setDebugChatEnabled(() => settingsManager.isDebugEnabled() || settingsManager.isDebugChatEnabled());
         gatewayClient.setDebugToolsEnabled(() => settingsManager.isDebugEnabled() || settingsManager.isDebugToolsEnabled());
         try {
@@ -243,6 +246,12 @@ function getSettingsHtml(config: RaulConfig): string {
     <div class="hint">Get this from OpenClaw config: openclaw gateway config</div>
   </div>
   
+  <div class="field">
+    <label>Session ID</label>
+    <input type="text" id="sessionId" placeholder="default" value="${config.sessionId}">
+    <div class="hint">Use the same ID to maintain context across connections. Change for a fresh session.</div>
+  </div>
+  
   <div class="checkbox-row">
     <input type="checkbox" id="debug" ${config.debug ? 'checked' : ''}>
     <label for="debug">Enable All Debug Logging</label>
@@ -301,6 +310,7 @@ function getSettingsHtml(config: RaulConfig): string {
         type: 'save',
         gatewayUrl: document.getElementById('gatewayUrl').value,
         token: document.getElementById('token').value,
+        sessionId: document.getElementById('sessionId').value || 'default',
         debug: document.getElementById('debug').checked,
         debugChat: document.getElementById('debugChat').checked,
         debugTools: document.getElementById('debugTools').checked
