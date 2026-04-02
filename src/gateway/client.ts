@@ -102,7 +102,7 @@ export class GatewayClient {
             this.ws?.send(JSON.stringify(connectReq));
           } else if (msg.type === 'res' && msg.ok) {
             if (msg.payload?.type === 'hello-ok') {
-              this.log('Connected! Gateway handshake complete');
+              this.log('[CONNECT] handshake complete! roles=' + JSON.stringify(msg.payload.auth));
               this.connected = true;
               resolve();
             }
@@ -119,7 +119,7 @@ export class GatewayClient {
               pending.reject(new Error(msg.error?.message || 'Request failed'));
             }
           } else if (msg.type === 'event' && (msg.event === 'message' || msg.event === 'token')) {
-            this.log(`[EVENT] ${msg.event} payload=${JSON.stringify(msg.payload).substring(0, 200)}`);
+            this.log(`[EVENT] ${msg.event} sessionKey=${msg.payload?.sessionKey} sender=${msg.payload?.sender} text=${(msg.payload?.text || '').toString().substring(0, 100)}`);
             const text = msg.payload?.text || msg.payload?.content || '';
             const sender = msg.payload?.sender === 'raul' ? 'raul' : 'user';
             
@@ -141,7 +141,7 @@ export class GatewayClient {
               this.pendingTextTimer = setTimeout(() => {
                 if (this.pendingTextResolver) {
                   const result = this.pendingTextBuffer;
-                  this.log(`[BUF] flush timer fired, resolving with ${result.length} chars`);
+                  this.log(`[FLUSH] 2.5s timeout fired, resolving with ${result.length} chars: "${result.substring(0, 100)}"`);
                   this.pendingTextResolver(result);
                   this.pendingTextBuffer = '';
                   this.pendingTextResolver = null;
@@ -208,7 +208,7 @@ export class GatewayClient {
 
   async sendMessage(text: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      this.log(`Sending message: ${text.substring(0, 50)}...`);
+      this.log(`[SEND] text="${text.substring(0, 80)}..."`);
       
       const sessionKey = `agent:raul:vscode:${Date.now()}`;
       const idempotencyKey = `vscode-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -254,10 +254,13 @@ export class GatewayClient {
   }
 
   async exec(tool: string, args: Record<string, unknown> = {}): Promise<GatewayResponse> {
+    this.log(`[EXEC] calling tool='${tool}' args=${JSON.stringify(args)}`);
     try {
       const result = await this.sendRpc('tools.invoke', { tool, args }) as GatewayResponse;
+      this.log(`[EXEC] result success=${result.success} error=${result.error}`);
       return result;
     } catch (err) {
+      this.log(`[EXEC] threw: ${err}`);
       return { success: false, error: String(err) };
     }
   }
