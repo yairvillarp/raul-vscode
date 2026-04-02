@@ -1,0 +1,122 @@
+{
+  "name": "raul-vscode",
+  "displayName": "Raul - AI Coding Partner",
+  "description": "Full AI integration for VS Code — Raul as your pair programmer",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["AI", "Developer Tools"],
+  "activationEvents": ["onCommand:raul.showChat", "onLanguage:notebook"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "raul.showChat",
+        "title": "Raul: Open Chat",
+        "category": "Raul"
+      },
+      {
+        "command": "raul.ask",
+        "title": "Raul: Ask About Selection",
+        "category": "Raul"
+      },
+      {
+        "command": "raul.explain",
+        "title": "Raul: Explain Code",
+        "category": "Raul"
+      },
+      {
+        "command": "raul.refactor",
+        "title": "Raul: Refactor Selection",
+        "category": "Raul"
+      },
+      {
+        "command": "raul.generate",
+        "title": "Raul: Generate Code",
+        "category": "Raul"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "raul.ask",
+          "when": "editorHasSelection",
+          "group": "raul"
+        },
+        {
+          "command": "raul.explain",
+          "when": "editorHasSelection",
+          "group": "raul"
+        },
+        {
+          "command": "raul.refactor",
+          "when": "editorHasSelection",
+          "group": "raul"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "raul.showChat",
+          "when": "true"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "raul.chat",
+          "title": "Raul",
+          "icon": "$(bot)"
+        }
+      ]
+    },
+    "views": {
+      "raul.chat": [
+        {
+          "type": "webview",
+          "id": "raul.chat.view",
+          "name": "Chat"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Raul",
+      "properties": {
+        "raul.gatewayUrl": {
+          "type": "string",
+          "default": "http://localhost:18789",
+          "description": "OpenClaw Gateway URL"
+        },
+        "raul.token": {
+          "type": "string",
+          "default": "",
+          "description": "Auth token from OpenClaw"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc && npm run build:webview",
+    "build:webview": "webpack --config webpack.config.js",
+    "watch": "tsc -watch",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/webview-ui-toolkit": "^1.2.2",
+    "css-loader": "^7.1.2",
+    "style-loader": "^4.0.0",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.4.0",
+    "webpack": "^5.91.0",
+    "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}
