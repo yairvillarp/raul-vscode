@@ -92,10 +92,19 @@ export class GatewayClient {
             this.log('Got connect challenge');
             this.challengeNonce = msg.payload.nonce;
             
-            // Get public key
+            // Sign v3 payload for device auth
             const publicKey = await this.exportPublicKey();
-            
-            // Try minimal connect request first
+            const signPayload = JSON.stringify({
+              clientId: 'cli',
+              role: 'operator',
+              scopes: ['operator.read', 'operator.write'],
+              token: this.token,
+              nonce: this.challengeNonce,
+              platform: 'darwin'
+            });
+            const signature = await this.sign(signPayload);
+
+            // Proper connect with valid client.id and client.mode
             const connectReq = {
               type: 'req',
               id: String(++this.requestId),
@@ -113,7 +122,14 @@ export class GatewayClient {
                 scopes: ['operator.read', 'operator.write'],
                 auth: { token: this.token },
                 locale: 'en-US',
-                userAgent: 'raul-vscode/0.1.0'
+                userAgent: 'raul-vscode/0.1.0',
+                device: {
+                  id: this.deviceId,
+                  publicKey: publicKey,
+                  signature: signature,
+                  signedAt: Date.now(),
+                  nonce: this.challengeNonce
+                }
               }
             };
             this.log('Sending connect with device auth...');
