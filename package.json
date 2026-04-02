@@ -3,6 +3,10 @@
   "displayName": "Raul - AI Coding Partner",
   "description": "Full AI integration for VS Code — Raul as your pair programmer",
   "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yairvillarp/raul-vscode.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },

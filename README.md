@@ -1,5 +1,8 @@
 # Raul VS Code Extension
 
+[![CI](https://github.com/yairvillarp/raul-vscode/actions/workflows/ci.yml/badge.svg)](https://github.com/yairvillarp/raul-vscode/actions/workflows/ci.yml)
+[![Release](https://github.com/yairvillarp/raul-vscode/actions/workflows/release.yml/badge.svg)](https://github.com/yairvillarp/raul-vscode/actions/workflows/release.yml)
+
 Full AI integration for VS Code — Raul as your pair programmer.
 
 ## Features
@@ -78,6 +81,31 @@ Add to your VS Code settings (`settings.json`):
 - `git_commit` — Git commit
 - `search_code` — Search code patterns
 - `list_directory` — List directory contents
+
+## CI/CD
+
+### GitHub Actions
+
+**CI** (`ci.yml`): Runs on every push/PR to `main`
+- Compiles TypeScript
+- Validates extension structure
+- Packages VSIX artifact
+
+**Release** (`release.yml`): Runs on every git tag `v*`
+- Compiles and packages VSIX
+- Creates GitHub Release with artifact attached
+
+### Creating a Release
+
+```bash
+# Update version in package.json, then:
+git add .
+git commit -m "Release v0.2.0"
+git tag v0.2.0
+git push && git push --tags
+```
+
+This triggers the release workflow automatically.
 
 ## TODO
 
