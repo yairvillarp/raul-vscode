@@ -338,9 +338,19 @@ function createChatPanel(context: vscode.ExtensionContext) {
     switch (message.type) {
       case 'chat':
         console.log('[Extension] Received chat message from webview:', message.text);
-        const response = await gatewayClient.sendMessage(message.text);
-        console.log('[Extension] sendMessage resolved, sending to webview:', response?.substring(0, 100));
-        chatPanel?.webview.postMessage({ type: 'response', text: response });
+        try {
+          const response = await gatewayClient.sendMessage(message.text);
+          console.log('[Extension] sendMessage resolved, response length:', response.length);
+          if (chatPanel) {
+            console.log('[Extension] posting to webview, panel exists');
+            chatPanel.webview.postMessage({ type: 'response', text: response });
+            console.log('[Extension] postMessage called');
+          } else {
+            console.log('[Extension] ERROR: chatPanel is undefined!');
+          }
+        } catch (err) {
+          console.log('[Extension] sendMessage error:', err);
+        }
         break;
       case 'execute':
         await vscode.commands.executeCommand(message.command);
