@@ -6,6 +6,9 @@ export class GatewayClient {
   private ws: WebSocket | null = null;
   private messageHandlers: Set<(msg: ChatMessage) => void> = new Set();
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private requestId = 0;
+  private pendingRequests: Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }> = new Map();
+  private connected = false;
 
   constructor(url: string, token: string) {
     this.url = url;
@@ -19,46 +22,89 @@ export class GatewayClient {
 
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      try {
-        const wsUrl = this.url.replace('http', 'ws') + '/ws';
-        this.ws = new WebSocket(wsUrl);
+      const wsUrl = this.url.replace('http', 'ws') + '/ws';
+      this.ws = new WebSocket(wsUrl);
 
-        this.ws.onopen = () => {
-          // Authenticate
-          this.ws?.send(JSON.stringify({
-            type: 'auth',
-            token: this.token
-          }));
-          resolve();
-        };
+      const timeout = setTimeout(() => {
+        reject(new Error('Connection timeout'));
+      }, 10000);
 
-        this.ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.type === 'message') {
-              const msg: ChatMessage = {
-                type: data.sender === 'raul' ? 'raul' : 'user',
-                text: data.text,
-                timestamp: Date.now()
-              };
-              this.messageHandlers.forEach(handler => handler(msg));
+      this.ws.onopen = () => {
+        clearTimeout(timeout);
+      };
+
+      this.ws.onmessage = async (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          
+          if (msg.type === 'event' && msg.event === 'connect.challenge') {
+            // Handle challenge - send connect request
+            const nonce = msg.payload.nonce;
+            const connectReq = {
+              type: 'req',
+              id: String(++this.requestId),
+              method: 'connect',
+              params: {
+                minProtocol: 3,
+                maxProtocol: 3,
+                client: {
+                  id: 'raul-vscode',
+                  version: '0.1.0',
+                  platform: 'vscode',
+                  mode: 'operator'
+                },
+                role: 'operator',
+                scopes: ['operator.read', 'operator.write'],
+                caps: [],
+                commands: [],
+                permissions: {},
+                auth: { token: this.token },
+                locale: 'en-US',
+                userAgent: 'raul-vscode/0.1.0'
+              }
+            };
+            this.ws?.send(JSON.stringify(connectReq));
+          } else if (msg.type === 'res' && msg.ok) {
+            if (msg.payload?.type === 'hello-ok') {
+              this.connected = true;
+              resolve();
             }
-          } catch (e) {
-            console.error('Failed to parse WS message:', e);
+            // Handle pending request responses
+            const pending = this.pendingRequests.get(msg.id);
+            if (pending) {
+              this.pendingRequests.delete(msg.id);
+              pending.resolve(msg.payload);
+            }
+          } else if (msg.type === 'res' && !msg.ok) {
+            // Reject pending request
+            const pending = this.pendingRequests.get(msg.id);
+            if (pending) {
+              this.pendingRequests.delete(msg.id);
+              pending.reject(new Error(msg.error || 'Request failed'));
+            }
+          } else if (msg.type === 'event' && msg.event === 'message') {
+            // Incoming message from agent
+            const chatMsg: ChatMessage = {
+              type: msg.payload.sender === 'raul' ? 'raul' : 'user',
+              text: msg.payload.text,
+              timestamp: Date.now()
+            };
+            this.messageHandlers.forEach(handler => handler(chatMsg));
           }
-        };
+        } catch (e) {
+          console.error('Failed to parse WS message:', e);
+        }
+      };
 
-        this.ws.onclose = () => {
-          this.scheduleReconnect();
-        };
+      this.ws.onclose = () => {
+        this.connected = false;
+        this.scheduleReconnect();
+      };
 
-        this.ws.onerror = (err) => {
-          console.error('Gateway WS error:', err);
-          reject(err);
-        };
-      } catch (err) {
+      this.ws.onerror = (err) => {
+        clearTimeout(timeout);
         reject(err);
-      }
+      };
     });
   }
 
@@ -74,36 +120,46 @@ export class GatewayClient {
     }, 5000);
   }
 
-  async sendMessage(text: string): Promise<string> {
-    // Use HTTP for chat messages (simpler for request/response)
-    const response = await fetch(this.url + '/api/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.token}`
-      },
-      body: JSON.stringify({ text })
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  private async sendRpc(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket not connected');
     }
 
-    const data = await response.json();
-    return data.text || data.response || JSON.stringify(data);
+    return new Promise((resolve, reject) => {
+      const id = String(++this.requestId);
+      this.pendingRequests.set(id, { resolve, reject });
+      
+      const req = { type: 'req', id, method, params };
+      this.ws?.send(JSON.stringify(req));
+
+      // Timeout
+      setTimeout(() => {
+        const pending = this.pendingRequests.get(id);
+        if (pending) {
+          this.pendingRequests.delete(id);
+          pending.reject(new Error('Request timeout'));
+        }
+      }, 30000);
+    });
   }
 
-  async exec(command: string, args: Record<string, unknown> = {}): Promise<GatewayResponse> {
-    const response = await fetch(this.url + '/api/tools/exec', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.token}`
-      },
-      body: JSON.stringify({ tool: command, args })
-    });
+  async sendMessage(text: string): Promise<string> {
+    try {
+      const result = await this.sendRpc('message.send', { text }) as { text?: string };
+      return result?.text || 'OK';
+    } catch (err) {
+      console.error('sendMessage error:', err);
+      throw err;
+    }
+  }
 
-    return response.json();
+  async exec(tool: string, args: Record<string, unknown> = {}): Promise<GatewayResponse> {
+    try {
+      const result = await this.sendRpc('tools.invoke', { tool, args }) as GatewayResponse;
+      return result;
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
   }
 
   onMessage(handler: (msg: ChatMessage) => void) {
@@ -118,5 +174,6 @@ export class GatewayClient {
     }
     this.ws?.close();
     this.ws = null;
+    this.connected = false;
   }
 }
