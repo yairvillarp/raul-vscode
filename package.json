@@ -17,6 +17,11 @@
         "category": "Raul"
       },
       {
+        "command": "raul.openSettings",
+        "title": "Raul: Open Settings",
+        "category": "Raul"
+      },
+      {
         "command": "raul.ask",
         "title": "Raul: Ask About Selection",
         "category": "Raul"

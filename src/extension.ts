@@ -2,27 +2,44 @@ import * as vscode from 'vscode';
 import { GatewayClient } from './gateway/client';
 import { McpServer } from './mcp/server';
 import { registerCommands } from './commands';
+import { SettingsManager } from './settings';
 
 // Global instances
 let gatewayClient: GatewayClient;
 let mcpServer: McpServer;
 let chatPanel: vscode.WebviewPanel | undefined;
+let settingsManager: SettingsManager;
 
 export async function activate(context: vscode.ExtensionContext) {
-  const config = vscode.workspace.getConfiguration('raul');
-  const gatewayUrl = config.get<string>('gatewayUrl', 'http://localhost:18789');
-  const token = config.get<string>('token', '');
+  // Initialize settings manager
+  settingsManager = new SettingsManager();
+
+  // Load saved config
+  const config = settingsManager.getConfig();
 
   // Initialize gateway client
-  gatewayClient = new GatewayClient(gatewayUrl, token);
-  await gatewayClient.connect();
+  gatewayClient = new GatewayClient(config.gatewayUrl, config.token);
+  
+  // Register settings command
+  context.subscriptions.push(
+    vscode.commands.registerCommand('raul.openSettings', () => {
+      openSettingsPanel(context);
+    })
+  );
+
+  // Try to connect (will fail gracefully if not configured)
+  try {
+    await gatewayClient.connect();
+  } catch (err) {
+    // Not configured yet, that's fine
+  }
 
   // Initialize MCP server (Raul as MCP server for tools)
   mcpServer = new McpServer(gatewayClient);
   await mcpServer.start();
 
   // Register VS Code commands
-  registerCommands(context, gatewayClient);
+  registerCommands(context, gatewayClient, settingsManager);
 
   // Create chat panel when command is triggered
   context.subscriptions.push(
@@ -44,6 +61,207 @@ export async function activate(context: vscode.ExtensionContext) {
   vscode.window.showInformationMessage('Raul is online! 🚀');
 }
 
+function openSettingsPanel(context: vscode.ExtensionContext) {
+  const panel = vscode.window.createWebviewPanel(
+    'raul.settings',
+    'Raul Settings',
+    vscode.ViewColumn.One,
+    { enableScripts: true, retainContextWhenHidden: true }
+  );
+
+  const currentConfig = settingsManager.getConfig();
+
+  panel.webview.html = getSettingsHtml(currentConfig);
+
+  panel.webview.onDidReceiveMessage(async (message) => {
+    switch (message.type) {
+      case 'save':
+        settingsManager.saveConfig({
+          gatewayUrl: message.gatewayUrl,
+          token: message.token
+        });
+        
+        // Update gateway client
+        gatewayClient.updateConfig(message.gatewayUrl, message.token);
+        try {
+          await gatewayClient.connect();
+        } catch (err) {
+          vscode.window.showWarningMessage('Could not connect to gateway. Check URL and token.');
+        }
+        
+        panel.dispose();
+        vscode.window.showInformationMessage('Raul settings saved! ✅');
+        break;
+      case 'test':
+        const testClient = new GatewayClient(message.gatewayUrl, message.token);
+        try {
+          await testClient.connect();
+          testClient.disconnect();
+          panel.webview.postMessage({ type: 'testResult', success: true });
+        } catch (err) {
+          panel.webview.postMessage({ type: 'testResult', success: false, error: String(err) });
+        }
+        break;
+    }
+  });
+}
+
+function getSettingsHtml(config: { gatewayUrl: string; token: string }): string {
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #1e1e1e;
+      color: #ccc;
+      padding: 24px;
+    }
+    h2 {
+      color: #fff;
+      font-size: 18px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .field {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      color: #aaa;
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    input {
+      width: 100%;
+      background: #2d2d2d;
+      border: 1px solid #3e3e3e;
+      border-radius: 6px;
+      padding: 10px 12px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+    }
+    input:focus { border-color: #667eea; }
+    input::placeholder { color: #666; }
+    .hint {
+      font-size: 12px;
+      color: #666;
+      margin-top: 6px;
+    }
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 24px;
+    }
+    button {
+      padding: 10px 20px;
+      border-radius: 6px;
+      border: none;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    button:hover { opacity: 0.9; }
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+    }
+    .btn-secondary {
+      background: #3e3e3e;
+      color: #ccc;
+    }
+    .btn-test {
+      background: #2d5a2d;
+      color: #8f8;
+    }
+    .result {
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      display: none;
+    }
+    .result.show { display: block; }
+    .result.success { background: #2d5a2d; color: #8f8; }
+    .result.error { background: #5a2d2d; color: #f88; }
+  </style>
+</head>
+<body>
+  <h2>🤖 Raul Settings</h2>
+  
+  <div class="field">
+    <label>Gateway URL</label>
+    <input type="text" id="gatewayUrl" placeholder="http://localhost:18789" value="${config.gatewayUrl}">
+    <div class="hint">OpenClaw Gateway address (use http://localhost:18789 for local)</div>
+  </div>
+  
+  <div class="field">
+    <label>Auth Token</label>
+    <input type="password" id="token" placeholder="eyJhbGciOiJIUzI1NiIsInR5c..." value="${config.token}">
+    <div class="hint">Get this from OpenClaw config: openclaw gateway config</div>
+  </div>
+  
+  <div class="btn-row">
+    <button class="btn-test" id="testBtn">Test Connection</button>
+    <button class="btn-secondary" id="cancelBtn">Cancel</button>
+    <button class="btn-primary" id="saveBtn">Save</button>
+  </div>
+  
+  <div class="result" id="result"></div>
+
+  <script>
+    const vscode = acquireVsCodeApi();
+    const result = document.getElementById('result');
+    
+    document.getElementById('testBtn').addEventListener('click', async () => {
+      const url = document.getElementById('gatewayUrl').value;
+      const token = document.getElementById('token').value;
+      
+      result.className = 'result show';
+      result.textContent = 'Testing...';
+      result.style.background = '#3e3e3e';
+      result.style.color = '#ccc';
+      
+      vscode.postMessage({ type: 'test', gatewayUrl: url, token });
+    });
+    
+    window.addEventListener('message', (event) => {
+      const msg = event.data;
+      if (msg.type === 'testResult') {
+        result.className = 'result show';
+        if (msg.success) {
+          result.textContent = '✓ Connection successful!';
+          result.classList.add('success');
+        } else {
+          result.textContent = '✗ Connection failed: ' + msg.error;
+          result.classList.add('error');
+        }
+      }
+    });
+    
+    document.getElementById('saveBtn').addEventListener('click', () => {
+      vscode.postMessage({
+        type: 'save',
+        gatewayUrl: document.getElementById('gatewayUrl').value,
+        token: document.getElementById('token').value
+      });
+    });
+    
+    document.getElementById('cancelBtn').addEventListener('click', () => {
+      vscode.postMessage({ type: 'cancel' });
+    });
+  </script>
+</body>
+</html>`;
+}
+
 function createChatPanel(context: vscode.ExtensionContext) {
   if (chatPanel) {
     chatPanel.reveal(vscode.ViewColumn.Beside);
@@ -60,11 +278,9 @@ function createChatPanel(context: vscode.ExtensionContext) {
     }
   );
 
-  // Get the webview HTML
-  const webviewHtml = getWebviewHtml(context);
+  const webviewHtml = getChatHtml();
   chatPanel.webview.html = webviewHtml;
 
-  // Handle messages from webview
   chatPanel.webview.onDidReceiveMessage(async (message) => {
     switch (message.type) {
       case 'chat':
@@ -74,6 +290,9 @@ function createChatPanel(context: vscode.ExtensionContext) {
       case 'execute':
         await vscode.commands.executeCommand(message.command);
         break;
+      case 'openSettings':
+        openSettingsPanel(context);
+        break;
     }
   });
 
@@ -82,11 +301,7 @@ function createChatPanel(context: vscode.ExtensionContext) {
   });
 }
 
-function getWebviewHtml(context: vscode.ExtensionContext): string {
-  const scriptUri = chatPanel?.webview.asWebviewUri(
-    vscode.Uri.joinPath(context.extensionUri, 'dist', 'webview.js')
-  ) || '';
-
+function getChatHtml(): string {
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -109,8 +324,9 @@ function getWebviewHtml(context: vscode.ExtensionContext): string {
       border-bottom: 1px solid #3e3e3e;
       display: flex;
       align-items: center;
-      gap: 10px;
+      justify-content: space-between;
     }
+    #header .left { display: flex; align-items: center; gap: 10px; }
     #header .avatar {
       width: 32px;
       height: 32px;
@@ -122,7 +338,17 @@ function getWebviewHtml(context: vscode.ExtensionContext): string {
       font-size: 18px;
     }
     #header h2 { color: #fff; font-size: 14px; font-weight: 500; }
-    #header span { color: #6px; font-size: 12px; }
+    #header .subtitle { color: #666; font-size: 12px; }
+    #header button {
+      background: #3e3e3e;
+      border: none;
+      border-radius: 4px;
+      padding: 6px 10px;
+      color: #aaa;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    #header button:hover { background: #4e4e4e; color: #fff; }
     #messages {
       flex: 1;
       overflow-y: auto;
@@ -202,16 +428,35 @@ function getWebviewHtml(context: vscode.ExtensionContext): string {
       color: #666;
       font-size: 13px;
       padding: 4px 0;
+      font-style: italic;
+    }
+    .not-configured {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+    .not-configured button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border: none;
+      border-radius: 6px;
+      padding: 10px 20px;
+      color: #fff;
+      font-size: 14px;
+      cursor: pointer;
+      margin-top: 16px;
     }
   </style>
 </head>
 <body>
   <div id="header">
-    <div class="avatar">🤖</div>
-    <div>
-      <h2>Raul</h2>
-      <span id="status">● Connected</span>
+    <div class="left">
+      <div class="avatar">🤖</div>
+      <div>
+        <h2>Raul</h2>
+        <span class="subtitle" id="status">● Online</span>
+      </div>
     </div>
+    <button id="settingsBtn">⚙️ Settings</button>
   </div>
   <div id="messages">
     <div class="message raul">Hey Yair! 👋 I'm Raul, your coding partner. What are we building today?</div>
@@ -225,19 +470,22 @@ function getWebviewHtml(context: vscode.ExtensionContext): string {
     const messages = document.getElementById('messages');
     const input = document.getElementById('input');
     const sendBtn = document.getElementById('send');
+    const settingsBtn = document.getElementById('settingsBtn');
     const status = document.getElementById('status');
 
     let isTyping = false;
+
+    settingsBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'openSettings' });
+    });
 
     async function sendMessage() {
       const text = input.value.trim();
       if (!text || isTyping) return;
 
-      // Add user message
       addMessage(text, 'user');
       input.value = '';
 
-      // Show typing indicator
       isTyping = true;
       const typing = document.createElement('div');
       typing.className = 'message raul typing';
@@ -272,10 +520,8 @@ function getWebviewHtml(context: vscode.ExtensionContext): string {
     window.addEventListener('message', (event) => {
       const msg = event.data;
       if (msg.type === 'response') {
-        // Remove typing indicator
         const typing = messages.querySelector('.typing');
         if (typing) typing.remove();
-
         addMessage(msg.text, 'raul');
         isTyping = false;
       }

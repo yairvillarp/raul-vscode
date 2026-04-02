@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { GatewayClient } from '../gateway/client';
+import { SettingsManager } from '../settings';
 
-export function registerCommands(context: vscode.ExtensionContext, gateway: GatewayClient) {
+export function registerCommands(context: vscode.ExtensionContext, gateway: GatewayClient, settings: SettingsManager) {
   // Quick ask about selected code
   context.subscriptions.push(
     vscode.commands.registerCommand('raul.ask', async () => {
