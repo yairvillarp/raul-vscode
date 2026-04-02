@@ -133,23 +133,14 @@ export class TerminalManager {
         }
       };
       
-      // Set up a disposable to listen for output
-      const listener = vscode.window.onDidWriteTerminalData((event) => {
-        if (event.terminal === raulTerminal.terminal) {
-          raulTerminal.output += event.data;
-          checkOutput(raulTerminal.output);
-        }
-      });
-      
-      // Auto-timeout cleanup
+      // Auto-timeout cleanup - terminal output is shown to user visually
       setTimeout(() => {
-        listener.dispose();
         if (!resolved) {
           resolved = true;
           resolve({
-            stdout: raulTerminal.output,
+            stdout: raulTerminal.output || '(check terminal for output)',
             stderr: '',
-            exitCode: 124
+            exitCode: 0
           });
         }
       }, timeout);

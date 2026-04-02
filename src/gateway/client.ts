@@ -12,6 +12,11 @@ export class GatewayClient {
     this.token = token;
   }
 
+  updateConfig(url: string, token: string): void {
+    this.url = url;
+    this.token = token;
+  }
+
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {

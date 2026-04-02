@@ -169,21 +169,22 @@ export class McpServer {
 
     // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
+      const { name, arguments: args = {} } = request.params;
+      const a = args as Record<string, unknown>;
 
       try {
         let result: string;
 
         switch (name) {
           case 'read_file':
-            const readResult = await this.gateway.exec('read', { path: args.path });
+            const readResult = await this.gateway.exec('read', { path: String(a.path) });
             result = readResult.success ? String(readResult.data) : `Error: ${readResult.error}`;
             break;
 
           case 'write_file':
             const writeResult = await this.gateway.exec('write', {
-              path: args.path,
-              content: args.content
+              path: String(a.path),
+              content: String(a.content)
             });
             result = writeResult.success ? 'File written successfully' : `Error: ${writeResult.error}`;
             break;
@@ -192,8 +193,8 @@ export class McpServer {
             // Use VS Code terminal for execution
             try {
               const execResult = await this.terminalManager.runCommand(
-                args.command,
-                args.cwd
+                String(a.command),
+                a.cwd ? String(a.cwd) : undefined
               );
               result = execResult.stdout || `(exited with code ${execResult.exitCode})`;
               if (execResult.stderr) {
@@ -211,38 +212,38 @@ export class McpServer {
 
           case 'git_commit':
             const commitResult = await this.gateway.exec('exec', {
-              command: `git add -A && git commit -m "${args.message}"`
+              command: `git add -A && git commit -m "${String(a.message)}"`
             });
             result = commitResult.success ? String(commitResult.data) : `Error: ${commitResult.error}`;
             break;
 
           case 'search_code':
             const searchResult = await this.gateway.exec('exec', {
-              command: `grep -r "${args.query}" ${args.fileFilter || '.'} --include="*.ts" --include="*.js" 2>/dev/null | head -50`
+              command: `grep -r "${String(a.query)}" ${String(a.fileFilter || '.')} --include="*.ts" --include="*.js" 2>/dev/null | head -50`
             });
             result = searchResult.success ? String(searchResult.data) : `Error: ${searchResult.error}`;
             break;
 
           case 'list_directory':
             const lsResult = await this.gateway.exec('exec', {
-              command: `ls -la ${args.path || '.'}`
+              command: `ls -la ${String(a.path || '.')}`
             });
             result = lsResult.success ? String(lsResult.data) : `Error: ${lsResult.error}`;
             break;
 
           case 'vscode_create_terminal':
-            const term = this.terminalManager.createTerminal(args.name || 'Raul');
+            const term = this.terminalManager.createTerminal(String(a.name || 'Raul'));
             result = `Created terminal: ${term.name} (ID: ${term.id})`;
             break;
 
           case 'vscode_send_text':
-            this.terminalManager.sendText(args.terminalId, args.text);
-            result = `Sent to terminal ${args.terminalId}: ${args.text}`;
+            this.terminalManager.sendText(String(a.terminalId), String(a.text));
+            result = `Sent to terminal ${a.terminalId}: ${a.text}`;
             break;
 
           case 'vscode_show_terminal':
-            this.terminalManager.showTerminal(args.terminalId);
-            result = `Showed terminal ${args.terminalId}`;
+            this.terminalManager.showTerminal(String(a.terminalId));
+            result = `Showed terminal ${a.terminalId}`;
             break;
 
           case 'vscode_list_terminals':

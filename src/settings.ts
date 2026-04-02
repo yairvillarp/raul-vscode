@@ -11,11 +11,9 @@ const DEFAULT_CONFIG: RaulConfig = {
 };
 
 export class SettingsManager {
-  private context: vscode.ExtensionContext;
   private config: RaulConfig;
 
   constructor() {
-    // Get from global state or workspace
     this.config = this.loadConfig();
   }
 
