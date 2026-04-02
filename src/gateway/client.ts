@@ -89,7 +89,7 @@ export class GatewayClient {
                   id: identity.deviceId,
                   publicKey: identity.publicKey,
                   signature: identity.signature,
-                  signedAt: Date.now(),
+                  signedAt: identity.signedAt,
                   nonce: this.challengeNonce
                 }
               }

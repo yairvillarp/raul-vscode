@@ -4,6 +4,7 @@ export interface DeviceIdentity {
   deviceId: string;
   publicKey: string;
   signature: string;
+  signedAt: number;
 }
 
 export function generateDeviceIdentity(token: string, nonce: string): DeviceIdentity {
@@ -20,15 +21,15 @@ export function generateDeviceIdentity(token: string, nonce: string): DeviceIden
   // Derive device ID: SHA-256 of raw key (same as OpenClaw)
   const deviceId = crypto.createHash('sha256').update(raw32).digest('hex');
   
-  // Sign payload: clientId + role + scopes + token + nonce + platform
-  const signPayload = JSON.stringify({
-    clientId: 'cli',
-    role: 'operator',
-    scopes: ['operator.read', 'operator.write'],
-    token: token,
-    nonce: nonce,
-    platform: 'darwin'
-  });
+  // Build signed payload matching OpenClaw gateway format:
+  // v2|deviceId|clientId|clientMode|role|scopesCsv|signedAtMs|token|nonce
+  const signedAtMs = Date.now();
+  const clientId = 'cli';
+  const clientMode = 'cli';
+  const role = 'operator';
+  const scopesCsv = 'operator.read,operator.write';
+  
+  const signPayload = `v2|${deviceId}|${clientId}|${clientMode}|${role}|${scopesCsv}|${signedAtMs}|${token}|${nonce}`;
   
   // Sign using Ed25519 (null hash = pure Ed25519)
   const signature = crypto.sign(null, Buffer.from(signPayload, 'utf8'), privateKey);
@@ -45,5 +46,5 @@ export function generateDeviceIdentity(token: string, nonce: string): DeviceIden
     .replace(/\//g, '_')
     .replace(/=+$/, '');
   
-  return { deviceId, publicKey: publicKeyBase64url, signature: signatureBase64url };
+  return { deviceId, publicKey: publicKeyBase64url, signature: signatureBase64url, signedAt: signedAtMs };
 }
