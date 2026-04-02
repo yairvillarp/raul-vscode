@@ -10,6 +10,7 @@ export class GatewayClient {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private requestId = 0;
   private pendingRequests: Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }> = new Map();
+  private pendingResponses: Map<string, (text: string) => void> = new Map();
   private connected = false;
   private debugLog: ((msg: string) => void) | null = null;
   private challengeNonce: string = '';
@@ -114,19 +115,26 @@ export class GatewayClient {
               this.pendingRequests.delete(msg.id);
               pending.reject(new Error(msg.error?.message || 'Request failed'));
             }
-          } else if (msg.type === 'event' && msg.event === 'message') {
+          } else if (msg.type === 'event' && (msg.event === 'message' || msg.event === 'token')) {
+            // Forward to registered message handlers AND resolve pending responses
+            const text = msg.payload?.text || msg.payload?.content || '';
+            const sender = msg.payload?.sender === 'raul' ? 'raul' : 'user';
+            
             const chatMsg: ChatMessage = {
-              type: msg.payload?.sender === 'raul' ? 'raul' : 'user',
-              text: msg.payload?.text || '',
+              type: sender,
+              text: typeof text === 'string' ? text : JSON.stringify(text),
               timestamp: Date.now()
             };
             this.messageHandlers.forEach(handler => handler(chatMsg));
-          } else if (msg.type === 'event' && msg.event === 'token') {
-            this.messageHandlers.forEach(handler => handler({
-              type: 'raul',
-              text: msg.payload?.text || '',
-              timestamp: Date.now()
-            }));
+            
+            // Resolve any pending sendMessage that was waiting for this session
+            if (msg.payload?.sessionKey) {
+              const resolver = this.pendingResponses.get(msg.payload.sessionKey);
+              if (resolver) {
+                resolver(chatMsg.text);
+                this.pendingResponses.delete(msg.payload.sessionKey);
+              }
+            }
           }
         } catch (e) {
           this.log(`Error: ${e}`);
@@ -186,22 +194,35 @@ export class GatewayClient {
   }
 
   async sendMessage(text: string): Promise<string> {
-    this.log(`Sending message: ${text.substring(0, 50)}...`);
-    try {
+    return new Promise((resolve, reject) => {
+      this.log(`Sending message: ${text.substring(0, 50)}...`);
+      
       // chat.send requires: sessionKey, message (string), idempotencyKey
       const sessionKey = `agent:raul:vscode:${Date.now()}`;
       const idempotencyKey = `vscode-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const result = await this.sendRpc('chat.send', {
+      
+      // Timeout if no response
+      const timeout = setTimeout(() => {
+        this.pendingResponses.delete(sessionKey);
+        reject(new Error('Message send timeout'));
+      }, 60000);
+      
+      // Store pending response handler
+      this.pendingResponses.set(sessionKey, (responseText: string) => {
+        clearTimeout(timeout);
+        resolve(responseText);
+      });
+      
+      this.sendRpc('chat.send', {
         sessionKey,
         message: text,
         idempotencyKey
-      }) as { text?: string };
-      this.log('Got response');
-      return result?.text || '';
-    } catch (err) {
-      this.log(`sendMessage error: ${err}`);
-      throw err;
-    }
+      }).catch((err) => {
+        clearTimeout(timeout);
+        this.pendingResponses.delete(sessionKey);
+        reject(err);
+      });
+    });
   }
 
   async exec(tool: string, args: Record<string, unknown> = {}): Promise<GatewayResponse> {
