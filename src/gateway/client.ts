@@ -10,10 +10,14 @@ export class GatewayClient {
   private pendingRequests: Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }> = new Map();
   private connected = false;
   private debugLog: ((msg: string) => void) | null = null;
+  private challengeNonce: string = '';
+  private deviceKeyPair: CryptoKeyPair | null = null;
+  private deviceId: string = '';
 
   constructor(url: string, token: string) {
     this.url = url;
     this.token = token;
+    this.deviceId = 'raul-vscode-' + Math.random().toString(36).substring(2, 15);
   }
 
   setDebug(logger: (msg: string) => void): void {
@@ -30,7 +34,41 @@ export class GatewayClient {
     this.token = token;
   }
 
+  private async generateKeyPair(): Promise<CryptoKeyPair> {
+    return crypto.subtle.generateKey(
+      {
+        name: 'ECDSA',
+        namedCurve: 'P-256'
+      },
+      true,
+      ['sign', 'verify']
+    );
+  }
+
+  private async exportPublicKey(): Promise<string> {
+    if (!this.deviceKeyPair) throw new Error('No key pair');
+    const exported = await crypto.subtle.exportKey('spki', this.deviceKeyPair.publicKey);
+    return btoa(String.fromCharCode(...new Uint8Array(exported)));
+  }
+
+  private async sign(data: string): Promise<string> {
+    if (!this.deviceKeyPair) throw new Error('No key pair');
+    const encoder = new TextEncoder();
+    const signature = await crypto.subtle.sign(
+      { name: 'ECDSA', hash: 'SHA-256' },
+      this.deviceKeyPair.privateKey,
+      encoder.encode(data)
+    );
+    return btoa(String.fromCharCode(...new Uint8Array(signature)));
+  }
+
   async connect(): Promise<void> {
+    // Generate key pair if not exists
+    if (!this.deviceKeyPair) {
+      this.log('Generating device key pair...');
+      this.deviceKeyPair = await this.generateKeyPair();
+    }
+
     return new Promise((resolve, reject) => {
       const wsUrl = this.url.replace('http', 'ws') + '/ws';
       this.log(`Connecting to ${wsUrl}`);
@@ -52,7 +90,22 @@ export class GatewayClient {
           
           if (msg.type === 'event' && msg.event === 'connect.challenge') {
             this.log('Got connect challenge');
-            // Send connect request with correct params
+            this.challengeNonce = msg.payload.nonce;
+            
+            // Get public key
+            const publicKey = await this.exportPublicKey();
+            
+            // Sign the v2 payload: clientId + role + scopes + token + nonce
+            const signPayload = JSON.stringify({
+              clientId: 'cli',
+              role: 'operator',
+              scopes: ['operator.read', 'operator.write'],
+              token: this.token,
+              nonce: this.challengeNonce
+            });
+            const signature = await this.sign(signPayload);
+
+            // Send connect request with device auth
             const connectReq = {
               type: 'req',
               id: String(++this.requestId),
@@ -63,7 +116,7 @@ export class GatewayClient {
                 client: {
                   id: 'cli',
                   version: '1.2.3',
-                  platform: process.platform === 'darwin' ? 'macos' : 'linux',
+                  platform: 'macos',
                   mode: 'operator'
                 },
                 role: 'operator',
@@ -73,10 +126,17 @@ export class GatewayClient {
                 permissions: {},
                 auth: { token: this.token },
                 locale: 'en-US',
-                userAgent: 'raul-vscode/0.1.0'
+                userAgent: 'raul-vscode/0.1.0',
+                device: {
+                  id: this.deviceId,
+                  publicKey: publicKey,
+                  signature: signature,
+                  signedAt: Date.now(),
+                  nonce: this.challengeNonce
+                }
               }
             };
-            this.log(`Sending connect request with client.id=cli`);
+            this.log('Sending connect with device auth...');
             this.ws?.send(JSON.stringify(connectReq));
           } else if (msg.type === 'res' && msg.ok) {
             if (msg.payload?.type === 'hello-ok') {
@@ -84,21 +144,19 @@ export class GatewayClient {
               this.connected = true;
               resolve();
             }
-            // Handle pending request responses
             const pending = this.pendingRequests.get(msg.id);
             if (pending) {
               this.pendingRequests.delete(msg.id);
               pending.resolve(msg.payload);
             }
           } else if (msg.type === 'res' && !msg.ok) {
-            this.log(`Request failed: ${JSON.stringify(msg)}`);
+            this.log(`Request failed: ${JSON.stringify(msg.error || msg)}`);
             const pending = this.pendingRequests.get(msg.id);
             if (pending) {
               this.pendingRequests.delete(msg.id);
-              pending.reject(new Error(msg.error || 'Request failed'));
+              pending.reject(new Error(msg.error?.message || 'Request failed'));
             }
           } else if (msg.type === 'event' && msg.event === 'message') {
-            // Incoming message from agent
             const chatMsg: ChatMessage = {
               type: msg.payload?.sender === 'raul' ? 'raul' : 'user',
               text: msg.payload?.text || '',
@@ -106,7 +164,6 @@ export class GatewayClient {
             };
             this.messageHandlers.forEach(handler => handler(chatMsg));
           } else if (msg.type === 'event' && msg.event === 'token') {
-            // Streaming token - used for thinking process
             this.messageHandlers.forEach(handler => handler({
               type: 'raul',
               text: msg.payload?.text || '',
@@ -114,14 +171,16 @@ export class GatewayClient {
             }));
           }
         } catch (e) {
-          this.log(`Parse error: ${e}`);
+          this.log(`Error: ${e}`);
         }
       };
 
       this.ws.onclose = (event) => {
         this.log(`WebSocket closed: code=${event.code} reason=${event.reason || 'none'}`);
         this.connected = false;
-        this.scheduleReconnect();
+        if (this.reconnectTimer) {
+          this.scheduleReconnect();
+        }
       };
 
       this.ws.onerror = (err) => {
@@ -134,6 +193,7 @@ export class GatewayClient {
 
   private scheduleReconnect() {
     if (this.reconnectTimer) return;
+    this.log('Scheduling reconnect in 5s...');
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
       try {
@@ -171,7 +231,7 @@ export class GatewayClient {
     this.log(`Sending message: ${text.substring(0, 50)}...`);
     try {
       const result = await this.sendRpc('message.send', { text }) as { text?: string };
-      this.log(`Got response`);
+      this.log('Got response');
       return result?.text || '';
     } catch (err) {
       this.log(`sendMessage error: ${err}`);
