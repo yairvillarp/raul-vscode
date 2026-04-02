@@ -27,7 +27,7 @@ export function generateDeviceIdentity(token: string, nonce: string): DeviceIden
   const clientId = 'cli';
   const clientMode = 'cli';
   const role = 'operator';
-  const scopesCsv = 'operator.read,operator.write';
+  const scopesCsv = 'operator.read,operator.write,operator.admin';
   
   const signPayload = `v2|${deviceId}|${clientId}|${clientMode}|${role}|${scopesCsv}|${signedAtMs}|${token}|${nonce}`;
   

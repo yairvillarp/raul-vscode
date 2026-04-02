@@ -81,7 +81,7 @@ export class GatewayClient {
                   mode: 'cli'
                 },
                 role: 'operator',
-                scopes: ['operator.read', 'operator.write'],
+                scopes: ['operator.read', 'operator.write', 'operator.admin'],
                 auth: { token: this.token },
                 locale: 'en-US',
                 userAgent: 'raul-vscode/0.1.0',
@@ -188,7 +188,7 @@ export class GatewayClient {
   async sendMessage(text: string): Promise<string> {
     this.log(`Sending message: ${text.substring(0, 50)}...`);
     try {
-      const result = await this.sendRpc('message.send', { text }) as { text?: string };
+      const result = await this.sendRpc('chat.send', { text }) as { text?: string };
       this.log('Got response');
       return result?.text || '';
     } catch (err) {
