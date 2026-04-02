@@ -298,7 +298,9 @@ function createChatPanel(context: vscode.ExtensionContext) {
   chatPanel.webview.onDidReceiveMessage(async (message) => {
     switch (message.type) {
       case 'chat':
+        console.log('[Extension] Received chat message from webview:', message.text);
         const response = await gatewayClient.sendMessage(message.text);
+        console.log('[Extension] sendMessage resolved, sending to webview:', response?.substring(0, 100));
         chatPanel?.webview.postMessage({ type: 'response', text: response });
         break;
       case 'execute':
@@ -533,9 +535,11 @@ function getChatHtml(): string {
 
     window.addEventListener('message', (event) => {
       const msg = event.data;
+      console.log('[WebView] received from extension:', JSON.stringify(msg).substring(0, 300));
       if (msg.type === 'response') {
         const typing = messages.querySelector('.typing');
         if (typing) typing.remove();
+        console.log('[WebView] adding raul message:', msg.text?.substring(0, 100));
         addMessage(msg.text, 'raul');
         isTyping = false;
       }
