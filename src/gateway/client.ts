@@ -9,6 +9,16 @@ export class GatewayClient {
   private requestId = 0;
   private pendingRequests: Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }> = new Map();
   private connected = false;
+  private debugLog: ((msg: string) => void) | null = null;
+
+  setDebug(logger: (msg: string) => void): void {
+    this.debugLog = logger;
+  }
+
+  private log(msg: string): void {
+    if (this.debugLog) this.debugLog(msg);
+    console.log(`[GatewayClient] ${msg}`);
+  }
 
   constructor(url: string, token: string) {
     this.url = url;
@@ -23,13 +33,16 @@ export class GatewayClient {
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       const wsUrl = this.url.replace('http', 'ws') + '/ws';
+      this.log(`Connecting to ${wsUrl}`);
       this.ws = new WebSocket(wsUrl);
 
       const timeout = setTimeout(() => {
+        this.log('Connection timeout');
         reject(new Error('Connection timeout'));
       }, 10000);
 
       this.ws.onopen = () => {
+        this.log('WebSocket opened');
         clearTimeout(timeout);
       };
 
@@ -38,6 +51,7 @@ export class GatewayClient {
           const msg = JSON.parse(event.data);
           
           if (msg.type === 'event' && msg.event === 'connect.challenge') {
+            this.log('Got connect challenge');
             // Handle challenge - send connect request
             const nonce = msg.payload.nonce;
             const connectReq = {
@@ -65,7 +79,9 @@ export class GatewayClient {
             };
             this.ws?.send(JSON.stringify(connectReq));
           } else if (msg.type === 'res' && msg.ok) {
+            this.log(`Got response: ${JSON.stringify(msg.payload).substring(0, 100)}`);
             if (msg.payload?.type === 'hello-ok') {
+              this.log('Connected! Gateway handshake complete');
               this.connected = true;
               resolve();
             }
@@ -97,11 +113,13 @@ export class GatewayClient {
       };
 
       this.ws.onclose = () => {
+        this.log('WebSocket closed');
         this.connected = false;
         this.scheduleReconnect();
       };
 
       this.ws.onerror = (err) => {
+        this.log(`WebSocket error: ${JSON.stringify(err)}`);
         clearTimeout(timeout);
         reject(err);
       };
@@ -144,11 +162,13 @@ export class GatewayClient {
   }
 
   async sendMessage(text: string): Promise<string> {
+    this.log(`Sending message: ${text.substring(0, 50)}...`);
     try {
       const result = await this.sendRpc('message.send', { text }) as { text?: string };
+      this.log(`Got response: ${JSON.stringify(result).substring(0, 100)}`);
       return result?.text || 'OK';
     } catch (err) {
-      console.error('sendMessage error:', err);
+      this.log(`sendMessage error: ${err}`);
       throw err;
     }
   }

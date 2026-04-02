@@ -27,7 +27,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Initialize gateway client
   gatewayClient = new GatewayClient(config.gatewayUrl, config.token);
-  
+
+  // Debug output channel
+  const debugChannel = vscode.window.createOutputChannel('Raul Debug');
+  debugChannel.appendLine(`[Raul] Gateway URL: ${config.gatewayUrl}`);
+  debugChannel.appendLine(`[Raul] Token: ${config.token ? '(set)' : '(missing)'}`);
+  gatewayClient.setDebug((msg: string) => debugChannel.appendLine(`[WS] ${msg}`));
+
   // Register settings command
   context.subscriptions.push(
     vscode.commands.registerCommand('raul.openSettings', () => {
