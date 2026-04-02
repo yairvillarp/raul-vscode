@@ -95,17 +95,7 @@ export class GatewayClient {
             // Get public key
             const publicKey = await this.exportPublicKey();
             
-            // Sign the v2 payload: clientId + role + scopes + token + nonce
-            const signPayload = JSON.stringify({
-              clientId: 'cli',
-              role: 'operator',
-              scopes: ['operator.read', 'operator.write'],
-              token: this.token,
-              nonce: this.challengeNonce
-            });
-            const signature = await this.sign(signPayload);
-
-            // Send connect request with device auth
+            // Try minimal connect request first
             const connectReq = {
               type: 'req',
               id: String(++this.requestId),
@@ -116,24 +106,14 @@ export class GatewayClient {
                 client: {
                   id: 'cli',
                   version: '1.2.3',
-                  platform: 'macos',
-                  mode: 'operator'
+                  platform: 'darwin',
+                  mode: 'cli'
                 },
                 role: 'operator',
                 scopes: ['operator.read', 'operator.write'],
-                caps: [],
-                commands: [],
-                permissions: {},
                 auth: { token: this.token },
                 locale: 'en-US',
-                userAgent: 'raul-vscode/0.1.0',
-                device: {
-                  id: this.deviceId,
-                  publicKey: publicKey,
-                  signature: signature,
-                  signedAt: Date.now(),
-                  nonce: this.challengeNonce
-                }
+                userAgent: 'raul-vscode/0.1.0'
               }
             };
             this.log('Sending connect with device auth...');
