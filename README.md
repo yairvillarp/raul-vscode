@@ -3,54 +3,98 @@
 [![CI](https://github.com/yairvillarp/raul-vscode/actions/workflows/ci.yml/badge.svg)](https://github.com/yairvillarp/raul-vscode/actions/workflows/ci.yml)
 [![Release](https://github.com/yairvillarp/raul-vscode/actions/workflows/release.yml/badge.svg)](https://github.com/yairvillarp/raul-vscode/actions/workflows/release.yml)
 
-Full AI integration for VS Code — Raul as your pair programmer.
+Full AI integration for VS Code — Raul as your pair programmer, powered by OpenClaw.
 
-## Features
+## Install
 
-- 💬 **Chat Panel** — Natural conversation with Raul inside VS Code
-- 🛠️ **MCP Tools** — Access to file operations, git, exec, search via MCP protocol
-- 🎯 **Context Commands** — Right-click to ask, explain, or refactor selected code
-- ⚡ **Code Generation** — Generate code from natural language prompts
-- 🔄 **Real-time Sync** — Connected to your OpenClaw gateway
+### From VSIX (Recommended for now)
 
-## Installation
+1. Download the latest `.vsix` from [Releases](https://github.com/yairvillarp/raul-vscode/releases)
+2. Run: `code --install-extension raul-vscode.vsix`
+
+Or install directly from file:
+```bash
+code --install-extension ./raul-vscode.vsix
+```
+
+### From Source
 
 ```bash
-cd vscode-raul
+git clone https://github.com/yairvillarp/raul-vscode.git
+cd raul-vscode
 npm install
 npm run compile
+code --install-extension dist/raul-vscode.vsix
 ```
 
-## Development
+## Setup
+
+### 1. Get your OpenClaw Gateway URL and Token
 
 ```bash
-# Watch mode
-npm run watch
-
-# Package for distribution
-npm run package
+openclaw gateway config
 ```
 
-## Configuration
+Note the URL (default: `http://localhost:18789`) and generate/get your auth token.
 
-Add to your VS Code settings (`settings.json`):
+### 2. Configure the Extension
+
+Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on Mac) and run:
+
+```
+Raul: Open Settings
+```
+
+Enter your Gateway URL and token, then click **Test Connection** to verify before saving.
+
+Or edit your `settings.json` directly:
 
 ```json
 {
   "raul.gatewayUrl": "http://localhost:18789",
-  "raul.token": "your-openclaw-token"
+  "raul.token": "your-openclaw-token-here"
 }
 ```
 
-## Commands
+## Usage
 
-| Command | Description |
+### Chat Panel
+
+Press `Ctrl+Shift+P` → **Raul: Open Chat** (or click the 🤖 status bar item)
+
+A chat panel opens where you can talk to Raul directly.
+
+### Context Commands
+
+Right-click on any selected code:
+
+| Command | What it does |
 |---------|-------------|
-| `Raul: Open Chat` | Opens the Raul chat panel |
-| `Raul: Ask About Selection` | Ask Raul about selected code |
-| `Raul: Explain Code` | Get explanation of selected code |
-| `Raul: Refactor Selection` | Get refactored version of selected code |
-| `Raul: Generate Code` | Generate code from a prompt |
+| **Raul: Ask About Selection** | Ask Raul anything about the selected code |
+| **Raul: Explain Code** | Get a clear explanation in a new tab |
+| **Raul: Refactor Selection** | Get a cleaner, better version |
+
+### Command Palette
+
+Press `Ctrl+Shift+P` and search `Raul:`:
+
+- `Raul: Open Chat` — Chat panel
+- `Raul: Open Settings` — Configure connection
+- `Raul: Generate Code` — Describe what to generate
+- `Raul: Open Terminal` — Open Raul's terminal
+- `Raul: Run in Terminal` — Run selected code in terminal
+
+### Terminal
+
+Raul can run commands in VS Code's actual terminal — you see what he runs and can interact with it.
+
+## Features
+
+- 💬 **Chat** — Natural conversation with Raul inside VS Code
+- 🤖 **MCP Tools** — File ops, git, search, exec via MCP protocol
+- 🎯 **Context Actions** — Ask, explain, refactor selected code
+- ⚡ **Code Generation** — From prompt to file
+- 🖥️ **Terminal Integration** — Raul uses real VS Code terminals
 
 ## Architecture
 
@@ -68,51 +112,51 @@ Add to your VS Code settings (`settings.json`):
            ↓
 ┌─────────────────────────────────────┐
 │  OpenClaw Gateway                  │
-│  └── Raul (main agent)             │
+│  └── Raul (your AI partner)        │
 └─────────────────────────────────────┘
 ```
 
-## MCP Tools Available
+## MCP Tools
 
-- `read_file` — Read file contents
-- `write_file` — Write file contents
-- `exec` — Run shell commands
-- `git_status` — Git status
-- `git_commit` — Git commit
-- `search_code` — Search code patterns
-- `list_directory` — List directory contents
+When used as an MCP server, Raul exposes:
+
+| Tool | Description |
+|------|-------------|
+| `read_file` | Read file contents |
+| `write_file` | Write content to file |
+| `exec` | Run shell command |
+| `git_status` | Git status |
+| `git_commit` | Commit with message |
+| `search_code` | Search code patterns |
+| `list_directory` | List directory |
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Compile (TypeScript + webpack)
+npm run compile
+
+# Watch mode
+npm run watch
+
+# Package VSIX
+npm run package
+```
 
 ## CI/CD
 
-### GitHub Actions
-
-**CI** (`ci.yml`): Runs on every push/PR to `main`
-- Compiles TypeScript
-- Validates extension structure
-- Packages VSIX artifact
-
-**Release** (`release.yml`): Runs on every git tag `v*`
-- Compiles and packages VSIX
-- Creates GitHub Release with artifact attached
-
-### Creating a Release
+- **CI**: Runs on every push/PR — compiles, validates, packages
+- **Release**: Creates GitHub Release on git tags (`v*`)
 
 ```bash
-# Update version in package.json, then:
-git add .
-git commit -m "Release v0.2.0"
-git tag v0.2.0
-git push && git push --tags
+# Create a release
+git tag v0.1.0
+git push --tags
 ```
 
-This triggers the release workflow automatically.
+## License
 
-## TODO
-
-- [ ] Proper React webview with Webpack bundling
-- [ ] Inline code decorations for generated code
-- [ ] Terminal view integration
-- [ ] File tree context menu
-- [ ] GitLens-style blame annotations
-- [ ] Settings UI
-- [ ] Token management UI
+MIT
