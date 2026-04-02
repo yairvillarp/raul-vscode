@@ -62,6 +62,7 @@ export class GatewayClient {
       this.ws.onmessage = async (event) => {
         try {
           const msg = JSON.parse(event.data);
+          this.log(`[WS] <<< ${JSON.stringify(msg).substring(0, 500)}`);
           
           if (msg.type === 'event' && msg.event === 'connect.challenge') {
             this.log('Got connect challenge');
@@ -192,7 +193,7 @@ export class GatewayClient {
       this.pendingRequests.set(id, { resolve, reject });
       
       const req = { type: 'req', id, method, params };
-      this.log(`Sending RPC: ${method}`);
+      this.log(`[WS] >>> ${JSON.stringify(req).substring(0, 500)}`);
       this.ws?.send(JSON.stringify(req));
 
       setTimeout(() => {
