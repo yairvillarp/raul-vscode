@@ -118,9 +118,52 @@ export class GatewayClient {
               this.pendingRequests.delete(msg.id);
               pending.reject(new Error(msg.error?.message || 'Request failed'));
             }
+          } else if (msg.type === 'event' && (msg.event === 'agent' || msg.event === 'chat')) {
+            // Handle agent/chat events which carry streaming text in 'delta' and final text in 'message'
+            const delta = msg.payload?.data?.delta;
+            const fullText = msg.payload?.message?.content?.[0]?.text;
+            const runId = msg.payload?.runId;
+            
+            if (delta !== undefined) {
+              this.log(`[EVENT] ${msg.event} delta="${delta.toString().substring(0, 100)}"`);
+              // Streaming token - forward to UI and accumulate
+              const chatMsg: ChatMessage = {
+                type: 'raul',
+                text: typeof delta === 'string' ? delta : JSON.stringify(delta),
+                timestamp: Date.now()
+              };
+              this.messageHandlers.forEach(handler => handler(chatMsg));
+              
+              if (this.pendingTextResolver !== null) {
+                this.pendingTextBuffer += chatMsg.text;
+                this.log(`[BUF] accumulated ${this.pendingTextBuffer.length} chars, resetting 2.5s flush timer`);
+                if (this.pendingTextTimer) clearTimeout(this.pendingTextTimer);
+                this.pendingTextTimer = setTimeout(() => {
+                  if (this.pendingTextResolver) {
+                    const result = this.pendingTextBuffer;
+                    this.log(`[FLUSH] 2.5s timeout fired, resolving with ${result.length} chars`);
+                    this.pendingTextResolver(result);
+                    this.pendingTextBuffer = '';
+                    this.pendingTextResolver = null;
+                  }
+                }, 2500);
+              }
+            }
+            
+            if (fullText !== undefined) {
+              this.log(`[EVENT] ${msg.event} FULL text="${fullText.toString().substring(0, 100)}"`);
+              // Final message - resolve immediately if we have a pending resolver
+              if (this.pendingTextResolver !== null) {
+                this.log(`[RESOLVE] got full text (${fullText.length} chars), resolving now`);
+                if (this.pendingTextTimer) clearTimeout(this.pendingTextTimer);
+                this.pendingTextResolver(fullText.toString());
+                this.pendingTextBuffer = '';
+                this.pendingTextResolver = null;
+              }
+            }
           } else if (msg.type === 'event' && (msg.event === 'message' || msg.event === 'token')) {
-            this.log(`[EVENT] ${msg.event} sessionKey=${msg.payload?.sessionKey} sender=${msg.payload?.sender} text=${(msg.payload?.text || '').toString().substring(0, 100)}`);
             const text = msg.payload?.text || msg.payload?.content || '';
+            this.log(`[EVENT] ${msg.event} text="${text.toString().substring(0, 100)}"`);
             const sender = msg.payload?.sender === 'raul' ? 'raul' : 'user';
             
             const chatMsg: ChatMessage = {
@@ -129,24 +172,19 @@ export class GatewayClient {
               timestamp: Date.now()
             };
             
-            // Forward to UI handlers for real-time display
             this.messageHandlers.forEach(handler => handler(chatMsg));
             
-            // Accumulate text for sendMessage promise
             if (this.pendingTextResolver !== null) {
               this.pendingTextBuffer += chatMsg.text;
-              this.log(`[BUF] accumulated ${this.pendingTextBuffer.length} chars, resetting 2.5s flush timer`);
-              // Reset the flush timer
               if (this.pendingTextTimer) clearTimeout(this.pendingTextTimer);
               this.pendingTextTimer = setTimeout(() => {
                 if (this.pendingTextResolver) {
                   const result = this.pendingTextBuffer;
-                  this.log(`[FLUSH] 2.5s timeout fired, resolving with ${result.length} chars: "${result.substring(0, 100)}"`);
                   this.pendingTextResolver(result);
                   this.pendingTextBuffer = '';
                   this.pendingTextResolver = null;
                 }
-              }, 2500); // 2.5s of silence = response complete
+              }, 2500);
             }
           }
         } catch (e) {
