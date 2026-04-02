@@ -188,7 +188,14 @@ export class GatewayClient {
   async sendMessage(text: string): Promise<string> {
     this.log(`Sending message: ${text.substring(0, 50)}...`);
     try {
-      const result = await this.sendRpc('chat.send', { text }) as { text?: string };
+      // chat.send requires: sessionKey, message (string), idempotencyKey
+      const sessionKey = `agent:raul:vscode:${Date.now()}`;
+      const idempotencyKey = `vscode-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const result = await this.sendRpc('chat.send', {
+        sessionKey,
+        message: text,
+        idempotencyKey
+      }) as { text?: string };
       this.log('Got response');
       return result?.text || '';
     } catch (err) {
