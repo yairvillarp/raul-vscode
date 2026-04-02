@@ -27,7 +27,7 @@ jobs:
       - name: Package VSIX
         run: |
           npm install -g @vscode/vsce
-          vsce package --allow-missing-repository-url
+          vsce package
           ls -la *.vsix
 
       - name: Create Release

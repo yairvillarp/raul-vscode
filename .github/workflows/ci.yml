@@ -55,7 +55,7 @@ jobs:
         id: package
         run: |
           npm install -g @vscode/vsce
-          vsce package --allow-missing-repository-url -o dist/raul-vscode
+          vsce package -o dist/raul-vscode
           echo "vsix_path=dist/raul-vscode.vsix" >> $GITHUB_OUTPUT
           echo "vsix_name=raul-vscode-$(git describe --tags).vsix" >> $GITHUB_OUTPUT
 
