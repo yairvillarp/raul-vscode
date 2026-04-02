@@ -116,6 +116,11 @@
           "type": "string",
           "default": "",
           "description": "Auth token from OpenClaw"
+        },
+        "raul.debug": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable verbose debug logging in Raul Debug output channel"
         }
       }
     }

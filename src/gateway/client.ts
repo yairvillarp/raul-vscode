@@ -12,6 +12,7 @@ export class GatewayClient {
   private pendingRequests: Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }> = new Map();
   private connected = false;
   private debugLog: ((msg: string) => void) | null = null;
+  private isDebugEnabled: (() => boolean) = () => false;
   private challengeNonce: string = '';
   private extensionContext: vscode.ExtensionContext | null = null;
 
@@ -29,12 +30,16 @@ export class GatewayClient {
     this.extensionContext = context;
   }
 
-  setDebug(logger: (msg: string) => void): void {
+  setDebugLogger(logger: (msg: string) => void): void {
     this.debugLog = logger;
   }
 
+  setDebugEnabled(enabled: () => boolean): void {
+    this.isDebugEnabled = enabled;
+  }
+
   private log(msg: string): void {
-    if (this.debugLog) this.debugLog(msg);
+    if (this.isDebugEnabled() && this.debugLog) this.debugLog(msg);
     console.log(`[GatewayClient] ${msg}`);
   }
 

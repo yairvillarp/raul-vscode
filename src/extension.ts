@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { GatewayClient } from './gateway/client';
 import { McpServer } from './mcp/server';
 import { registerCommands } from './commands';
-import { SettingsManager } from './settings';
+import { SettingsManager, RaulConfig } from './settings';
 import { TerminalManager } from './terminal/manager';
 
 // Global instances
@@ -32,7 +32,8 @@ export async function activate(context: vscode.ExtensionContext) {
   const debugChannel = vscode.window.createOutputChannel('Raul Debug');
   debugChannel.appendLine(`[Raul] Gateway URL: ${config.gatewayUrl}`);
   debugChannel.appendLine(`[Raul] Token: ${config.token ? '(set)' : '(missing)'}`);
-  gatewayClient.setDebug((msg: string) => debugChannel.appendLine(`[WS] ${msg}`));
+  gatewayClient.setDebugLogger((msg: string) => debugChannel.appendLine(`[WS] ${msg}`));
+  gatewayClient.setDebugEnabled(() => settingsManager.isDebugEnabled());
 
   // Register settings command
   context.subscriptions.push(
@@ -83,7 +84,7 @@ function openSettingsPanel(context: vscode.ExtensionContext) {
     { enableScripts: true, retainContextWhenHidden: true }
   );
 
-  const currentConfig = settingsManager.getConfig();
+  const currentConfig: RaulConfig = settingsManager.getConfig();
 
   panel.webview.html = getSettingsHtml(currentConfig);
 
@@ -92,11 +93,13 @@ function openSettingsPanel(context: vscode.ExtensionContext) {
       case 'save':
         settingsManager.saveConfig({
           gatewayUrl: message.gatewayUrl,
-          token: message.token
+          token: message.token,
+          debug: message.debug
         });
         
         // Update gateway client
         gatewayClient.updateConfig(message.gatewayUrl, message.token);
+        gatewayClient.setDebugEnabled(() => settingsManager.isDebugEnabled());
         try {
           await gatewayClient.connect();
         } catch (err) {
@@ -120,7 +123,7 @@ function openSettingsPanel(context: vscode.ExtensionContext) {
   });
 }
 
-function getSettingsHtml(config: { gatewayUrl: string; token: string }): string {
+function getSettingsHtml(config: RaulConfig): string {
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -163,6 +166,20 @@ function getSettingsHtml(config: { gatewayUrl: string; token: string }): string 
     }
     input:focus { border-color: #667eea; }
     input::placeholder { color: #666; }
+    input[type="checkbox"] {
+      width: auto;
+      margin-right: 8px;
+      cursor: pointer;
+    }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .checkbox-row label {
+      margin-bottom: 0;
+      cursor: pointer;
+    }
     .hint {
       font-size: 12px;
       color: #666;
@@ -222,6 +239,11 @@ function getSettingsHtml(config: { gatewayUrl: string; token: string }): string 
     <div class="hint">Get this from OpenClaw config: openclaw gateway config</div>
   </div>
   
+  <div class="checkbox-row">
+    <input type="checkbox" id="debug" ${config.debug ? 'checked' : ''}>
+    <label for="debug">Enable Debug Logging</label>
+  </div>
+  
   <div class="btn-row">
     <button class="btn-test" id="testBtn">Test Connection</button>
     <button class="btn-secondary" id="cancelBtn">Cancel</button>
@@ -264,7 +286,8 @@ function getSettingsHtml(config: { gatewayUrl: string; token: string }): string 
       vscode.postMessage({
         type: 'save',
         gatewayUrl: document.getElementById('gatewayUrl').value,
-        token: document.getElementById('token').value
+        token: document.getElementById('token').value,
+        debug: document.getElementById('debug').checked
       });
     });
     
