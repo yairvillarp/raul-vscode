@@ -77,6 +77,7 @@ export class GatewayClient {
                 userAgent: 'raul-vscode/0.1.0'
               }
             };
+            this.log(`Sending connect request: ${JSON.stringify(connectReq).substring(0, 200)}`);
             this.ws?.send(JSON.stringify(connectReq));
           } else if (msg.type === 'res' && msg.ok) {
             this.log(`Got response: ${JSON.stringify(msg.payload).substring(0, 100)}`);
@@ -112,8 +113,8 @@ export class GatewayClient {
         }
       };
 
-      this.ws.onclose = () => {
-        this.log('WebSocket closed');
+      this.ws.onclose = (event) => {
+        this.log(`WebSocket closed: code=${event.code} reason=${event.reason || 'none'}`);
         this.connected = false;
         this.scheduleReconnect();
       };
