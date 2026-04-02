@@ -12,7 +12,8 @@ export class GatewayClient {
   private pendingRequests: Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }> = new Map();
   private connected = false;
   private debugLog: ((msg: string) => void) | null = null;
-  private isDebugEnabled: (() => boolean) = () => false;
+  private isDebugChatEnabled: (() => boolean) = () => false;
+  private isDebugToolsEnabled: (() => boolean) = () => false;
   private challengeNonce: string = '';
   private extensionContext: vscode.ExtensionContext | null = null;
 
@@ -20,6 +21,7 @@ export class GatewayClient {
   private pendingTextResolver: ((text: string) => void) | null = null;
   private pendingTextBuffer: string = '';
   private pendingTextTimer: NodeJS.Timeout | null = null;
+  private isFirstMessage = true;
 
   constructor(url: string, token: string) {
     this.url = url;
@@ -34,12 +36,21 @@ export class GatewayClient {
     this.debugLog = logger;
   }
 
-  setDebugEnabled(enabled: () => boolean): void {
-    this.isDebugEnabled = enabled;
+  setDebugChatEnabled(enabled: () => boolean): void {
+    this.isDebugChatEnabled = enabled;
   }
 
-  private log(msg: string): void {
-    if (this.isDebugEnabled() && this.debugLog) this.debugLog(msg);
+  setDebugToolsEnabled(enabled: () => boolean): void {
+    this.isDebugToolsEnabled = enabled;
+  }
+
+  private logChat(msg: string): void {
+    if (this.isDebugChatEnabled() && this.debugLog) this.debugLog(msg);
+    console.log(`[GatewayClient] ${msg}`);
+  }
+
+  private logTools(msg: string): void {
+    if (this.isDebugToolsEnabled() && this.debugLog) this.debugLog(msg);
     console.log(`[GatewayClient] ${msg}`);
   }
 
@@ -51,31 +62,31 @@ export class GatewayClient {
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       const wsUrl = this.url.replace('http', 'ws') + '/ws';
-      this.log(`Connecting to ${wsUrl}`);
+      this.logChat(`Connecting to ${wsUrl}`);
       this.ws = new WebSocket(wsUrl);
 
       const timeout = setTimeout(() => {
-        this.log('Connection timeout');
+        this.logChat('Connection timeout');
         reject(new Error('Connection timeout'));
       }, 10000);
 
       this.ws.onopen = () => {
-        this.log('WebSocket opened');
+        this.logChat('WebSocket opened');
         clearTimeout(timeout);
       };
 
       this.ws.onmessage = async (event) => {
         try {
           const msg = JSON.parse(event.data);
-          this.log(`[WS] <<< ${JSON.stringify(msg).substring(0, 500)}`);
-          
+          this.logChat(`[WS] <<< ${JSON.stringify(msg).substring(0, 500)}`);
+
           if (msg.type === 'event' && msg.event === 'connect.challenge') {
-            this.log('Got connect challenge');
+            this.logChat('Got connect challenge');
             this.challengeNonce = msg.payload.nonce;
-            
+
             const identity = generateDeviceIdentity(this.token, this.challengeNonce);
-            this.log(`Generated device: ${identity.deviceId.substring(0, 16)}...`);
-            
+            this.logChat(`Generated device: ${identity.deviceId.substring(0, 16)}...`);
+
             const connectReq = {
               type: 'req',
               id: String(++this.requestId),
@@ -103,12 +114,13 @@ export class GatewayClient {
                 }
               }
             };
-            this.log('Sending connect with Ed25519 device auth...');
+            this.logChat('Sending connect with Ed25519 device auth...');
             this.ws?.send(JSON.stringify(connectReq));
           } else if (msg.type === 'res' && msg.ok) {
             if (msg.payload?.type === 'hello-ok') {
-              this.log('[CONNECT] handshake complete! roles=' + JSON.stringify(msg.payload.auth));
+              this.logChat(`[CONNECT] handshake complete! roles=${JSON.stringify(msg.payload.auth)}`);
               this.connected = true;
+              this.isFirstMessage = true;
               resolve();
             }
             const pending = this.pendingRequests.get(msg.id);
@@ -117,36 +129,33 @@ export class GatewayClient {
               pending.resolve(msg.payload);
             }
           } else if (msg.type === 'res' && !msg.ok) {
-            this.log(`Request failed: ${JSON.stringify(msg.error || msg)}`);
+            this.logChat(`Request failed: ${JSON.stringify(msg.error || msg)}`);
             const pending = this.pendingRequests.get(msg.id);
             if (pending) {
               this.pendingRequests.delete(msg.id);
               pending.reject(new Error(msg.error?.message || 'Request failed'));
             }
           } else if (msg.type === 'event' && (msg.event === 'agent' || msg.event === 'chat')) {
-            // Handle agent/chat events which carry streaming text in 'delta' and final text in 'message'
             const delta = msg.payload?.data?.delta;
             const fullText = msg.payload?.message?.content?.[0]?.text;
             const runId = msg.payload?.runId;
-            
+
             if (delta !== undefined) {
-              this.log(`[EVENT] ${msg.event} delta="${delta.toString().substring(0, 100)}"`);
-              // Streaming token - forward to UI and accumulate
+              this.logChat(`[EVENT] ${msg.event} delta="${delta.toString().substring(0, 100)}"`);
               const chatMsg: ChatMessage = {
                 type: 'raul',
                 text: typeof delta === 'string' ? delta : JSON.stringify(delta),
                 timestamp: Date.now()
               };
               this.messageHandlers.forEach(handler => handler(chatMsg));
-              
+
               if (this.pendingTextResolver !== null) {
                 this.pendingTextBuffer += chatMsg.text;
-                this.log(`[BUF] accumulated ${this.pendingTextBuffer.length} chars, resetting 2.5s flush timer`);
                 if (this.pendingTextTimer) clearTimeout(this.pendingTextTimer);
                 this.pendingTextTimer = setTimeout(() => {
                   if (this.pendingTextResolver) {
                     const result = this.pendingTextBuffer;
-                    this.log(`[FLUSH] 2.5s timeout fired, resolving with ${result.length} chars`);
+                    this.logChat(`[FLUSH] 2.5s timeout fired, resolving with ${result.length} chars`);
                     this.pendingTextResolver(result);
                     this.pendingTextBuffer = '';
                     this.pendingTextResolver = null;
@@ -154,12 +163,11 @@ export class GatewayClient {
                 }, 2500);
               }
             }
-            
+
             if (fullText !== undefined) {
-              this.log(`[EVENT] ${msg.event} FULL text="${fullText.toString().substring(0, 100)}"`);
-              // Final message - resolve immediately if we have a pending resolver
+              this.logChat(`[EVENT] ${msg.event} FULL text="${fullText.toString().substring(0, 100)}"`);
               if (this.pendingTextResolver !== null) {
-                this.log(`[RESOLVE] got full text (${fullText.length} chars), resolving now`);
+                this.logChat(`[RESOLVE] got full text (${fullText.length} chars), resolving now`);
                 if (this.pendingTextTimer) clearTimeout(this.pendingTextTimer);
                 this.pendingTextResolver(fullText.toString());
                 this.pendingTextBuffer = '';
@@ -168,17 +176,17 @@ export class GatewayClient {
             }
           } else if (msg.type === 'event' && (msg.event === 'message' || msg.event === 'token')) {
             const text = msg.payload?.text || msg.payload?.content || '';
-            this.log(`[EVENT] ${msg.event} text="${text.toString().substring(0, 100)}"`);
+            this.logChat(`[EVENT] ${msg.event} text="${text.toString().substring(0, 100)}"`);
             const sender = msg.payload?.sender === 'raul' ? 'raul' : 'user';
-            
+
             const chatMsg: ChatMessage = {
               type: sender,
               text: typeof text === 'string' ? text : JSON.stringify(text),
               timestamp: Date.now()
             };
-            
+
             this.messageHandlers.forEach(handler => handler(chatMsg));
-            
+
             if (this.pendingTextResolver !== null) {
               this.pendingTextBuffer += chatMsg.text;
               if (this.pendingTextTimer) clearTimeout(this.pendingTextTimer);
@@ -193,12 +201,12 @@ export class GatewayClient {
             }
           }
         } catch (e) {
-          this.log(`Error: ${e}`);
+          this.logChat(`Error: ${e}`);
         }
       };
 
       this.ws.onclose = (event) => {
-        this.log(`WebSocket closed: code=${event.code} reason=${event.reason || 'none'}`);
+        this.logChat(`WebSocket closed: code=${event.code} reason=${event.reason || 'none'}`);
         this.connected = false;
         if (this.reconnectTimer) {
           this.scheduleReconnect();
@@ -206,7 +214,7 @@ export class GatewayClient {
       };
 
       this.ws.onerror = (err) => {
-        this.log(`WebSocket error: ${JSON.stringify(err)}`);
+        this.logChat(`WebSocket error: ${JSON.stringify(err)}`);
         clearTimeout(timeout);
         reject(err);
       };
@@ -215,13 +223,13 @@ export class GatewayClient {
 
   private scheduleReconnect() {
     if (this.reconnectTimer) return;
-    this.log('Scheduling reconnect in 5s...');
+    this.logChat('Scheduling reconnect in 5s...');
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
       try {
         await this.connect();
       } catch (e) {
-        this.log(`Reconnect failed: ${e}`);
+        this.logChat(`Reconnect failed: ${e}`);
       }
     }, 5000);
   }
@@ -234,9 +242,9 @@ export class GatewayClient {
     return new Promise((resolve, reject) => {
       const id = String(++this.requestId);
       this.pendingRequests.set(id, { resolve, reject });
-      
+
       const req = { type: 'req', id, method, params };
-      this.log(`[WS] >>> ${JSON.stringify(req).substring(0, 500)}`);
+      this.logChat(`[WS] >>> ${JSON.stringify(req).substring(0, 500)}`);
       this.ws?.send(JSON.stringify(req));
 
       setTimeout(() => {
@@ -251,36 +259,45 @@ export class GatewayClient {
 
   async sendMessage(text: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      this.log(`[SEND] text="${text.substring(0, 80)}..."`);
-      
+      this.logChat(`[SEND] text="${text.substring(0, 80)}..."`);
+
       const sessionKey = `agent:raul:vscode:${Date.now()}`;
       const idempotencyKey = `vscode-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      
-      // Set up pending state for text accumulation
+
       this.pendingTextBuffer = '';
-      
-      // Wrap resolve to also clear timer and reset state
+
       const wrappedResolve = (result: string) => {
-        this.log(`[SEND] resolving with ${result.length} chars`);
+        this.logChat(`[SEND] resolving with ${result.length} chars`);
         if (this.pendingTextTimer) clearTimeout(this.pendingTextTimer);
         this.pendingTextResolver = null;
         this.pendingTextBuffer = '';
+        this.isFirstMessage = false;
         resolve(result);
       };
-      
+
       this.pendingTextResolver = wrappedResolve;
-      
-      // Timeout fallback
+
       const timeout = setTimeout(() => {
         if (this.pendingTextResolver === wrappedResolve) {
           this.pendingTextResolver = null;
           const result = this.pendingTextBuffer;
           this.pendingTextBuffer = '';
-          this.log(`sendMessage timeout, returning ${result.length} chars`);
-          resolve(result);
+          this.logChat(`[SEND] timeout! isFirstMessage=${this.isFirstMessage}, buffer=${result.length} chars`);
+
+          // Cold start bug workaround: if first message times out, retry once
+          if (this.isFirstMessage && !result) {
+            this.logChat(`[SEND] cold start detected, retrying once...`);
+            this.isFirstMessage = false;
+            setTimeout(() => {
+              this.sendMessage(text).then(resolve).catch(reject);
+            }, 1000);
+          } else {
+            this.isFirstMessage = false;
+            resolve(result);
+          }
         }
       }, 90000);
-      
+
       this.sendRpc('chat.send', {
         sessionKey,
         message: text,
@@ -297,13 +314,13 @@ export class GatewayClient {
   }
 
   async exec(tool: string, args: Record<string, unknown> = {}): Promise<GatewayResponse> {
-    this.log(`[EXEC] calling tool='${tool}' args=${JSON.stringify(args)}`);
+    this.logTools(`[EXEC] calling tool='${tool}' args=${JSON.stringify(args)}`);
     try {
       const result = await this.sendRpc('tools.invoke', { tool, args }) as GatewayResponse;
-      this.log(`[EXEC] result success=${result.success} error=${result.error}`);
+      this.logTools(`[EXEC] result success=${result.success} error=${result.error}`);
       return result;
     } catch (err) {
-      this.log(`[EXEC] threw: ${err}`);
+      this.logTools(`[EXEC] threw: ${err}`);
       return { success: false, error: String(err) };
     }
   }
@@ -324,6 +341,6 @@ export class GatewayClient {
     this.ws?.close();
     this.ws = null;
     this.connected = false;
-    this.log('Disconnected');
+    this.logChat('Disconnected');
   }
 }

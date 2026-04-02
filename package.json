@@ -121,6 +121,16 @@
           "type": "boolean",
           "default": false,
           "description": "Enable verbose debug logging in Raul Debug output channel"
+        },
+        "raul.debugChat": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable chat-specific debug logging (WebSocket events, message flow)"
+        },
+        "raul.debugTools": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable MCP tools debug logging (tools.invoke, exec results)"
         }
       }
     }

@@ -4,12 +4,16 @@ export interface RaulConfig {
   gatewayUrl: string;
   token: string;
   debug: boolean;
+  debugChat: boolean;
+  debugTools: boolean;
 }
 
 const DEFAULT_CONFIG: RaulConfig = {
   gatewayUrl: 'http://localhost:18789',
   token: '',
-  debug: false
+  debug: false,
+  debugChat: false,
+  debugTools: false
 };
 
 export class SettingsManager {
@@ -24,8 +28,10 @@ export class SettingsManager {
     const gatewayUrl = workspaceConfig.get<string>('gatewayUrl', DEFAULT_CONFIG.gatewayUrl);
     const token = workspaceConfig.get<string>('token', DEFAULT_CONFIG.token);
     const debug = workspaceConfig.get<boolean>('debug', DEFAULT_CONFIG.debug);
+    const debugChat = workspaceConfig.get<boolean>('debugChat', DEFAULT_CONFIG.debugChat);
+    const debugTools = workspaceConfig.get<boolean>('debugTools', DEFAULT_CONFIG.debugTools);
 
-    return { gatewayUrl, token, debug };
+    return { gatewayUrl, token, debug, debugChat, debugTools };
   }
 
   getConfig(): RaulConfig {
@@ -35,6 +41,16 @@ export class SettingsManager {
   isDebugEnabled(): boolean {
     const workspaceConfig = vscode.workspace.getConfiguration('raul');
     return workspaceConfig.get<boolean>('debug', DEFAULT_CONFIG.debug);
+  }
+
+  isDebugChatEnabled(): boolean {
+    const workspaceConfig = vscode.workspace.getConfiguration('raul');
+    return workspaceConfig.get<boolean>('debugChat', DEFAULT_CONFIG.debugChat);
+  }
+
+  isDebugToolsEnabled(): boolean {
+    const workspaceConfig = vscode.workspace.getConfiguration('raul');
+    return workspaceConfig.get<boolean>('debugTools', DEFAULT_CONFIG.debugTools);
   }
 
   saveConfig(config: Partial<RaulConfig>): void {
@@ -53,6 +69,16 @@ export class SettingsManager {
     if (config.debug !== undefined) {
       workspaceConfig.update('debug', config.debug, vscode.ConfigurationTarget.Global);
       this.config.debug = config.debug;
+    }
+
+    if (config.debugChat !== undefined) {
+      workspaceConfig.update('debugChat', config.debugChat, vscode.ConfigurationTarget.Global);
+      this.config.debugChat = config.debugChat;
+    }
+
+    if (config.debugTools !== undefined) {
+      workspaceConfig.update('debugTools', config.debugTools, vscode.ConfigurationTarget.Global);
+      this.config.debugTools = config.debugTools;
     }
   }
 

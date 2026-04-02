@@ -33,7 +33,8 @@ export async function activate(context: vscode.ExtensionContext) {
   debugChannel.appendLine(`[Raul] Gateway URL: ${config.gatewayUrl}`);
   debugChannel.appendLine(`[Raul] Token: ${config.token ? '(set)' : '(missing)'}`);
   gatewayClient.setDebugLogger((msg: string) => debugChannel.appendLine(`[WS] ${msg}`));
-  gatewayClient.setDebugEnabled(() => settingsManager.isDebugEnabled());
+  gatewayClient.setDebugChatEnabled(() => settingsManager.isDebugEnabled() || settingsManager.isDebugChatEnabled());
+  gatewayClient.setDebugToolsEnabled(() => settingsManager.isDebugEnabled() || settingsManager.isDebugToolsEnabled());
 
   // Register settings command
   context.subscriptions.push(
@@ -94,12 +95,15 @@ function openSettingsPanel(context: vscode.ExtensionContext) {
         settingsManager.saveConfig({
           gatewayUrl: message.gatewayUrl,
           token: message.token,
-          debug: message.debug
+          debug: message.debug,
+          debugChat: message.debugChat,
+          debugTools: message.debugTools
         });
         
         // Update gateway client
         gatewayClient.updateConfig(message.gatewayUrl, message.token);
-        gatewayClient.setDebugEnabled(() => settingsManager.isDebugEnabled());
+        gatewayClient.setDebugChatEnabled(() => settingsManager.isDebugEnabled() || settingsManager.isDebugChatEnabled());
+        gatewayClient.setDebugToolsEnabled(() => settingsManager.isDebugEnabled() || settingsManager.isDebugToolsEnabled());
         try {
           await gatewayClient.connect();
         } catch (err) {
@@ -241,7 +245,17 @@ function getSettingsHtml(config: RaulConfig): string {
   
   <div class="checkbox-row">
     <input type="checkbox" id="debug" ${config.debug ? 'checked' : ''}>
-    <label for="debug">Enable Debug Logging</label>
+    <label for="debug">Enable All Debug Logging</label>
+  </div>
+  
+  <div class="checkbox-row">
+    <input type="checkbox" id="debugChat" ${config.debugChat ? 'checked' : ''}>
+    <label for="debugChat">Debug Chat (WebSocket events, message flow)</label>
+  </div>
+  
+  <div class="checkbox-row">
+    <input type="checkbox" id="debugTools" ${config.debugTools ? 'checked' : ''}>
+    <label for="debugTools">Debug MCP Tools (tools.invoke, exec results)</label>
   </div>
   
   <div class="btn-row">
@@ -287,7 +301,9 @@ function getSettingsHtml(config: RaulConfig): string {
         type: 'save',
         gatewayUrl: document.getElementById('gatewayUrl').value,
         token: document.getElementById('token').value,
-        debug: document.getElementById('debug').checked
+        debug: document.getElementById('debug').checked,
+        debugChat: document.getElementById('debugChat').checked,
+        debugTools: document.getElementById('debugTools').checked
       });
     });
     
