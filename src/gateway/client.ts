@@ -17,7 +17,7 @@ export class GatewayClient {
   constructor(url: string, token: string) {
     this.url = url;
     this.token = token;
-    this.deviceId = 'raul-vscode-' + Math.random().toString(36).substring(2, 15);
+    this.deviceId = '';
   }
 
   setDebug(logger: (msg: string) => void): void {
@@ -49,6 +49,16 @@ export class GatewayClient {
     if (!this.deviceKeyPair) throw new Error('No key pair');
     const exported = await crypto.subtle.exportKey('spki', this.deviceKeyPair.publicKey);
     return btoa(String.fromCharCode(...new Uint8Array(exported)));
+  }
+
+  private async getDeviceId(): Promise<string> {
+    if (!this.deviceKeyPair) throw new Error('No key pair');
+    const exported = await crypto.subtle.exportKey('spki', this.deviceKeyPair.publicKey);
+    // SHA-256 the public key and take first 16 bytes as hex
+    const hash = await crypto.subtle.digest('SHA-256', exported);
+    const hashArray = new Uint8Array(hash);
+    const hashHex = Array.from(hashArray.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join('');
+    return `raul-vscode-${hashHex}`;
   }
 
   private async sign(data: string): Promise<string> {
@@ -92,8 +102,11 @@ export class GatewayClient {
             this.log('Got connect challenge');
             this.challengeNonce = msg.payload.nonce;
             
-            // Sign v3 payload for device auth
+            // Get device ID from public key fingerprint
             const publicKey = await this.exportPublicKey();
+            const deviceId = await this.getDeviceId();
+            
+            // Sign v3 payload for device auth
             const signPayload = JSON.stringify({
               clientId: 'cli',
               role: 'operator',
@@ -124,7 +137,7 @@ export class GatewayClient {
                 locale: 'en-US',
                 userAgent: 'raul-vscode/0.1.0',
                 device: {
-                  id: this.deviceId,
+                  id: deviceId,
                   publicKey: publicKey,
                   signature: signature,
                   signedAt: Date.now(),
