@@ -1,4 +1,6 @@
 import { GatewayConfig, GatewayResponse, ChatMessage } from './types';
+import * as vscode from 'vscode';
+import { generateDeviceIdentity } from './crypto';
 
 export class GatewayClient {
   private url: string;
@@ -11,13 +13,15 @@ export class GatewayClient {
   private connected = false;
   private debugLog: ((msg: string) => void) | null = null;
   private challengeNonce: string = '';
-  private deviceKeyPair: CryptoKeyPair | null = null;
-  private deviceId: string = '';
+  private extensionContext: vscode.ExtensionContext | null = null;
 
   constructor(url: string, token: string) {
     this.url = url;
     this.token = token;
-    this.deviceId = '';
+  }
+
+  setExtensionContext(context: vscode.ExtensionContext): void {
+    this.extensionContext = context;
   }
 
   setDebug(logger: (msg: string) => void): void {
@@ -34,51 +38,7 @@ export class GatewayClient {
     this.token = token;
   }
 
-  private async generateKeyPair(): Promise<CryptoKeyPair> {
-    return crypto.subtle.generateKey(
-      {
-        name: 'ECDSA',
-        namedCurve: 'P-256'
-      },
-      true,
-      ['sign', 'verify']
-    );
-  }
-
-  private async exportPublicKey(): Promise<string> {
-    if (!this.deviceKeyPair) throw new Error('No key pair');
-    const exported = await crypto.subtle.exportKey('spki', this.deviceKeyPair.publicKey);
-    return btoa(String.fromCharCode(...new Uint8Array(exported)));
-  }
-
-  private async getDeviceId(): Promise<string> {
-    if (!this.deviceKeyPair) throw new Error('No key pair');
-    const exported = await crypto.subtle.exportKey('spki', this.deviceKeyPair.publicKey);
-    // SHA-256 the public key and take first 16 bytes as hex
-    const hash = await crypto.subtle.digest('SHA-256', exported);
-    const hashArray = new Uint8Array(hash);
-    const hashHex = Array.from(hashArray.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join('');
-    return `raul-vscode-${hashHex}`;
-  }
-
-  private async sign(data: string): Promise<string> {
-    if (!this.deviceKeyPair) throw new Error('No key pair');
-    const encoder = new TextEncoder();
-    const signature = await crypto.subtle.sign(
-      { name: 'ECDSA', hash: 'SHA-256' },
-      this.deviceKeyPair.privateKey,
-      encoder.encode(data)
-    );
-    return btoa(String.fromCharCode(...new Uint8Array(signature)));
-  }
-
   async connect(): Promise<void> {
-    // Generate key pair if not exists
-    if (!this.deviceKeyPair) {
-      this.log('Generating device key pair...');
-      this.deviceKeyPair = await this.generateKeyPair();
-    }
-
     return new Promise((resolve, reject) => {
       const wsUrl = this.url.replace('http', 'ws') + '/ws';
       this.log(`Connecting to ${wsUrl}`);
@@ -102,22 +62,11 @@ export class GatewayClient {
             this.log('Got connect challenge');
             this.challengeNonce = msg.payload.nonce;
             
-            // Get device ID from public key fingerprint
-            const publicKey = await this.exportPublicKey();
-            const deviceId = await this.getDeviceId();
+            // Generate device identity using extension host crypto
+            const identity = generateDeviceIdentity(this.token, this.challengeNonce);
+            this.log(`Generated device: ${identity.deviceId.substring(0, 16)}...`);
             
-            // Sign v3 payload for device auth
-            const signPayload = JSON.stringify({
-              clientId: 'cli',
-              role: 'operator',
-              scopes: ['operator.read', 'operator.write'],
-              token: this.token,
-              nonce: this.challengeNonce,
-              platform: 'darwin'
-            });
-            const signature = await this.sign(signPayload);
-
-            // Proper connect with valid client.id and client.mode
+            // Proper connect with valid client.id and client.mode + device auth
             const connectReq = {
               type: 'req',
               id: String(++this.requestId),
@@ -137,15 +86,15 @@ export class GatewayClient {
                 locale: 'en-US',
                 userAgent: 'raul-vscode/0.1.0',
                 device: {
-                  id: deviceId,
-                  publicKey: publicKey,
-                  signature: signature,
+                  id: identity.deviceId,
+                  publicKey: identity.publicKey,
+                  signature: identity.signature,
                   signedAt: Date.now(),
                   nonce: this.challengeNonce
                 }
               }
             };
-            this.log('Sending connect with device auth...');
+            this.log('Sending connect with Ed25519 device auth...');
             this.ws?.send(JSON.stringify(connectReq));
           } else if (msg.type === 'res' && msg.ok) {
             if (msg.payload?.type === 'hello-ok') {
