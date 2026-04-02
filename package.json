@@ -40,6 +40,21 @@
         "command": "raul.generate",
         "title": "Raul: Generate Code",
         "category": "Raul"
+      },
+      {
+        "command": "raul.openTerminal",
+        "title": "Raul: Open Terminal",
+        "category": "Raul"
+      },
+      {
+        "command": "raul.runInTerminal",
+        "title": "Raul: Run in Terminal",
+        "category": "Raul"
+      },
+      {
+        "command": "raul.killTerminal",
+        "title": "Raul: Close Terminal",
+        "category": "Raul"
       }
     ],
     "menus": {

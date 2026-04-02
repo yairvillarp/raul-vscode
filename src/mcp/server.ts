@@ -7,6 +7,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { GatewayClient } from '../gateway/client';
 import { McpTool } from '../gateway/types';
+import { TerminalManager } from '../terminal/manager';
 
 // Tools that Raul exposes to VS Code via MCP
 const RAUL_TOOLS: McpTool[] = [
@@ -35,12 +36,13 @@ const RAUL_TOOLS: McpTool[] = [
   },
   {
     name: 'exec',
-    description: 'Execute a shell command',
+    description: 'Execute a shell command in VS Code terminal',
     inputSchema: {
       type: 'object',
       properties: {
         command: { type: 'string', description: 'Shell command to execute' },
-        cwd: { type: 'string', description: 'Working directory' }
+        cwd: { type: 'string', description: 'Working directory' },
+        timeout: { type: 'number', description: 'Timeout in milliseconds (default: 30000)' }
       },
       required: ['command']
     }
@@ -85,15 +87,58 @@ const RAUL_TOOLS: McpTool[] = [
         path: { type: 'string', description: 'Directory path' }
       }
     }
+  },
+  {
+    name: 'vscode_create_terminal',
+    description: 'Create a new VS Code terminal',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Terminal name' }
+      }
+    }
+  },
+  {
+    name: 'vscode_send_text',
+    description: 'Send text to a VS Code terminal',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        terminalId: { type: 'string', description: 'Terminal ID' },
+        text: { type: 'string', description: 'Text to send' }
+      },
+      required: ['terminalId', 'text']
+    }
+  },
+  {
+    name: 'vscode_show_terminal',
+    description: 'Show and focus a VS Code terminal',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        terminalId: { type: 'string', description: 'Terminal ID' }
+      },
+      required: ['terminalId']
+    }
+  },
+  {
+    name: 'vscode_list_terminals',
+    description: 'List all open VS Code terminals',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
   }
 ];
 
 export class McpServer {
   private server: Server;
   private gateway: GatewayClient;
+  private terminalManager: TerminalManager;
 
-  constructor(gateway: GatewayClient) {
+  constructor(gateway: GatewayClient, terminalManager: TerminalManager) {
     this.gateway = gateway;
+    this.terminalManager = terminalManager;
 
     this.server = new Server(
       {
@@ -144,11 +189,19 @@ export class McpServer {
             break;
 
           case 'exec':
-            const execResult = await this.gateway.exec('exec', {
-              command: args.command,
-              cwd: args.cwd
-            });
-            result = execResult.success ? String(execResult.data) : `Error: ${execResult.error}`;
+            // Use VS Code terminal for execution
+            try {
+              const execResult = await this.terminalManager.runCommand(
+                args.command,
+                args.cwd
+              );
+              result = execResult.stdout || `(exited with code ${execResult.exitCode})`;
+              if (execResult.stderr) {
+                result += `\nSTDERR:\n${execResult.stderr}`;
+              }
+            } catch (err) {
+              result = `Error: ${err}`;
+            }
             break;
 
           case 'git_status':
@@ -175,6 +228,28 @@ export class McpServer {
               command: `ls -la ${args.path || '.'}`
             });
             result = lsResult.success ? String(lsResult.data) : `Error: ${lsResult.error}`;
+            break;
+
+          case 'vscode_create_terminal':
+            const term = this.terminalManager.createTerminal(args.name || 'Raul');
+            result = `Created terminal: ${term.name} (ID: ${term.id})`;
+            break;
+
+          case 'vscode_send_text':
+            this.terminalManager.sendText(args.terminalId, args.text);
+            result = `Sent to terminal ${args.terminalId}: ${args.text}`;
+            break;
+
+          case 'vscode_show_terminal':
+            this.terminalManager.showTerminal(args.terminalId);
+            result = `Showed terminal ${args.terminalId}`;
+            break;
+
+          case 'vscode_list_terminals':
+            const terminals = this.terminalManager.listTerminals();
+            result = terminals.length 
+              ? terminals.map(t => `${t.id}: ${t.name}`).join('\n')
+              : 'No terminals open';
             break;
 
           default:

@@ -3,16 +3,24 @@ import { GatewayClient } from './gateway/client';
 import { McpServer } from './mcp/server';
 import { registerCommands } from './commands';
 import { SettingsManager } from './settings';
+import { TerminalManager } from './terminal/manager';
 
 // Global instances
 let gatewayClient: GatewayClient;
 let mcpServer: McpServer;
 let chatPanel: vscode.WebviewPanel | undefined;
 let settingsManager: SettingsManager;
+let terminalManager: TerminalManager;
 
 export async function activate(context: vscode.ExtensionContext) {
   // Initialize settings manager
   settingsManager = new SettingsManager();
+
+  // Initialize terminal manager
+  terminalManager = new TerminalManager();
+  context.subscriptions.push({
+    dispose: () => terminalManager.disposeAll()
+  });
 
   // Load saved config
   const config = settingsManager.getConfig();
@@ -35,11 +43,11 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   // Initialize MCP server (Raul as MCP server for tools)
-  mcpServer = new McpServer(gatewayClient);
+  mcpServer = new McpServer(gatewayClient, terminalManager);
   await mcpServer.start();
 
   // Register VS Code commands
-  registerCommands(context, gatewayClient, settingsManager);
+  registerCommands(context, gatewayClient, settingsManager, terminalManager);
 
   // Create chat panel when command is triggered
   context.subscriptions.push(

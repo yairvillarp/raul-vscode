@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
 import { GatewayClient } from '../gateway/client';
 import { SettingsManager } from '../settings';
+import { TerminalManager } from '../terminal/manager';
 
-export function registerCommands(context: vscode.ExtensionContext, gateway: GatewayClient, settings: SettingsManager) {
+export function registerCommands(context: vscode.ExtensionContext, gateway: GatewayClient, settings: SettingsManager, terminalManager: TerminalManager) {
   // Quick ask about selected code
   context.subscriptions.push(
     vscode.commands.registerCommand('raul.ask', async () => {
@@ -92,6 +93,72 @@ export function registerCommands(context: vscode.ExtensionContext, gateway: Gate
         language
       });
       vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside);
+    })
+  );
+
+  // Open Raul terminal
+  context.subscriptions.push(
+    vscode.commands.registerCommand('raul.openTerminal', async () => {
+      const term = terminalManager.createTerminal('Raul');
+      term.terminal.show();
+      vscode.window.showInformationMessage(`Terminal "${term.name}" opened`);
+    })
+  );
+
+  // Run selected code in terminal
+  context.subscriptions.push(
+    vscode.commands.registerCommand('raul.runInTerminal', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showWarningMessage('No active editor');
+        return;
+      }
+
+      const selection = editor.document.getText(editor.selection);
+      if (!selection) {
+        // No selection, run the whole file
+        const doc = editor.document;
+        const fullText = doc.getText();
+        
+        let term = terminalManager.listTerminals().find(t => t.name === 'Raul');
+        if (!term) {
+          term = terminalManager.createTerminal('Raul');
+        }
+        term.terminal.sendText(fullText);
+        term.terminal.show();
+      } else {
+        // Run selection
+        let term = terminalManager.listTerminals().find(t => t.name === 'Raul');
+        if (!term) {
+          term = terminalManager.createTerminal('Raul');
+        }
+        term.terminal.sendText(selection);
+        term.terminal.show();
+      }
+    })
+  );
+
+  // Kill terminal
+  context.subscriptions.push(
+    vscode.commands.registerCommand('raul.killTerminal', async () => {
+      const terminals = terminalManager.listTerminals();
+      if (terminals.length === 0) {
+        vscode.window.showInformationMessage('No Raul terminals open');
+        return;
+      }
+      
+      const choice = await vscode.window.showQuickPick(
+        terminals.map(t => t.name),
+        { placeHolder: 'Select terminal to close' }
+      );
+      
+      if (choice) {
+        const term = terminals.find(t => t.name === choice);
+        if (term) {
+          terminalManager.disposeTerminal(term.id);
+          vscode.window.showInformationMessage(`Terminal "${choice}" closed`);
+        }
+      }
     })
   );
 }
