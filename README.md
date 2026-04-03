@@ -58,11 +58,16 @@ Or edit your `settings.json` directly:
 
 ## Usage
 
-### Chat Panel
+### Chat (VS Code Native)
 
 Press `Ctrl+Shift+P` → **Raul: Open Chat** (or click the 🤖 status bar item)
 
-A chat panel opens where you can talk to Raul directly.
+This opens VS Code's built-in Chat panel where you can talk to Raul directly. The chat uses VS Code's native chat interface, so you get the full chat experience with the AI.
+
+**Example prompts:**
+- "Hey Raul, help me refactor this function"
+- "Explain what this code does"
+- "Generate a React component for a button"
 
 ### Context Commands
 
@@ -90,7 +95,7 @@ Raul can run commands in VS Code's actual terminal — you see what he runs and 
 
 ## Features
 
-- 💬 **Chat** — Natural conversation with Raul inside VS Code
+- 💬 **Native Chat** — VS Code's built-in chat panel with Raul
 - 🤖 **MCP Tools** — File ops, git, search, exec via MCP protocol
 - 🎯 **Context Actions** — Ask, explain, refactor selected code
 - ⚡ **Code Generation** — From prompt to file

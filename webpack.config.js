@@ -1,7 +1,8 @@
 const path = require('path');
 
 module.exports = {
-  mode: 'production',
+  mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
+  devtool: 'source-map',
   entry: './src/chat/webview.tsx',
   target: 'web',
   output: {
